@@ -1,23 +1,40 @@
-use color_eyre::Result;
+use color_eyre::{Result, eyre::eyre};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::{DefaultTerminal, Frame};
-use std::fs;
+use reqwest::Client;
 use std::process::Stdio;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use std::{env, fs};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 
 use crate::templates::{self, ConfigTemplate};
 use crate::ui::{
     self, ConfigSelectionView, ConfirmationView, EnvSetupView, ErrorView, InstallingView,
-    SuccessView,
+    RegistrySetupView, SuccessView, UpdateListView,
 };
 use crate::utils;
 
 pub mod form_data;
 pub mod state;
+pub mod registry_form;
+mod updates;
 
 pub use form_data::FormData;
 pub use state::{AppState, MenuSelection};
+pub use updates::UpdateInfo;
+use registry_form::RegistryForm;
+use updates::{collect_update_infos, get_local_image_created};
+
+enum UpdateListAction {
+    Pull,
+    Refresh,
+    Back,
+}
+
+enum RegistryAction {
+    Submit,
+    Skip,
+}
 
 #[derive(Debug)]
 pub struct App {
@@ -33,6 +50,13 @@ pub struct App {
     pub(crate) form_data: FormData,
     pub(crate) menu_selection: MenuSelection,
     config_selection_index: usize,
+    update_infos: Vec<UpdateInfo>,
+    update_selection_index: usize,
+    update_message: Option<String>,
+    registry_form: RegistryForm,
+    registry_status: Option<String>,
+    ghcr_token: Option<String>,
+    ghcr_username: Option<String>,
 }
 
 impl App {
@@ -40,18 +64,23 @@ impl App {
         let env_exists = utils::find_file(".env");
         let config_exists = utils::find_file("config.yaml");
 
-        let initial_state = AppState::Confirmation;
+        let token_from_env = env::var("GHCR_TOKEN")
+            .or_else(|_| env::var("GITHUB_TOKEN"))
+            .or_else(|_| env::var("GH_TOKEN"))
+            .ok();
 
-        // Urutan: pilih config dulu, baru bisa isi env
-        let initial_menu = if !config_exists {
-            MenuSelection::GenerateConfig
-        } else if !env_exists {
-            MenuSelection::GenerateEnv
+        let mut registry_form = RegistryForm::new();
+        if let Some(token) = token_from_env.clone() {
+            registry_form.token = token;
+        }
+
+        let initial_state = if token_from_env.is_some() {
+            AppState::Confirmation
         } else {
-            MenuSelection::Proceed
+            AppState::RegistrySetup
         };
 
-        Self {
+        let mut app = Self {
             running: true,
             state: initial_state,
             logs: Vec::new(),
@@ -62,9 +91,19 @@ impl App {
             env_exists,
             config_exists,
             form_data: FormData::new(),
-            menu_selection: initial_menu,
+            menu_selection: MenuSelection::Proceed,
             config_selection_index: 0,
-        }
+            update_infos: Vec::new(),
+            update_selection_index: 0,
+            update_message: None,
+            registry_form,
+            registry_status: None,
+            ghcr_token: token_from_env,
+            ghcr_username: None,
+        };
+
+        app.ensure_menu_selection();
+        app
     }
 
     pub async fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
@@ -72,6 +111,29 @@ impl App {
             terminal.draw(|frame| self.render(frame))?;
 
             match &self.state {
+                AppState::RegistrySetup => {
+                    if let Some(action) = self.handle_registry_setup_events()? {
+                        match action {
+                            RegistryAction::Submit => match self.try_registry_login().await {
+                                Ok(true) => {
+                                    self.state = AppState::Confirmation;
+                                    self.ensure_menu_selection();
+                                }
+                                Ok(false) => {}
+                                Err(e) => {
+                                    self.registry_status = Some(format!(
+                                        "Failed to run docker login: {}",
+                                        e
+                                    ));
+                                }
+                            },
+                            RegistryAction::Skip => {
+                                self.state = AppState::Confirmation;
+                                self.ensure_menu_selection();
+                            }
+                        }
+                    }
+                }
                 AppState::Confirmation => {
                     if let Some(action) = self.handle_confirmation_events()? {
                         match action {
@@ -133,6 +195,27 @@ impl App {
                                     self.state = AppState::ConfigSelection;
                                 }
                             }
+                            MenuSelection::CheckUpdates => {
+                                if self.ghcr_token.is_none() {
+                                    self.registry_status = Some(
+                                        "Authentication required to check for updates.".to_string(),
+                                    );
+                                    self.state = AppState::RegistrySetup;
+                                } else {
+                                    match self.load_updates().await {
+                                        Ok(_) => {
+                                            self.state = AppState::UpdateList;
+                                            self.ensure_update_selection();
+                                        }
+                                        Err(e) => {
+                                            self.state = AppState::Error(format!(
+                                                "Failed to check updates: {}",
+                                                e
+                                            ));
+                                        }
+                                    }
+                                }
+                            }
                             MenuSelection::Cancel => {
                                 self.running = false;
                             }
@@ -161,6 +244,50 @@ impl App {
                 }
                 AppState::ConfigSelection => {
                     self.handle_config_selection_events()?;
+                }
+                AppState::UpdateList => {
+                    if let Some(action) = self.handle_update_list_events()? {
+                        match action {
+                            UpdateListAction::Pull => {
+                                self.state = AppState::UpdatePulling;
+                                if let Err(e) = self.pull_selected_update().await {
+                                    self.state =
+                                        AppState::Error(format!("Failed to pull image: {}", e));
+                                } else {
+                                    self.state = AppState::UpdateList;
+                                    self.update_message = Some(
+                                        "Image refreshed. Press R to fetch remote metadata again."
+                                            .to_string(),
+                                    );
+                                }
+                            }
+                            UpdateListAction::Refresh => {
+                                if let Err(e) = self.load_updates().await {
+                                    self.state = AppState::Error(format!(
+                                        "Failed to refresh updates: {}",
+                                        e
+                                    ));
+                                }
+                            }
+                            UpdateListAction::Back => {
+                                self.state = AppState::Confirmation;
+                                self.ensure_menu_selection();
+                            }
+                        }
+                    }
+                }
+                AppState::UpdatePulling => {
+                    if event::poll(std::time::Duration::from_millis(100))? {
+                        if let Event::Key(key) = event::read()? {
+                            if key.kind == KeyEventKind::Press {
+                                if let KeyCode::Char('c') = key.code {
+                                    if key.modifiers.contains(KeyModifiers::CONTROL) {
+                                        self.running = false;
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 AppState::Installing => {
                     if event::poll(std::time::Duration::from_millis(100))? {
@@ -193,66 +320,363 @@ impl App {
         Ok(())
     }
 
-    fn handle_confirmation_events(&mut self) -> Result<Option<MenuSelection>> {
+    fn menu_options(&self) -> Vec<MenuSelection> {
+        let mut options = Vec::new();
+
+        if !self.config_exists {
+            options.push(MenuSelection::GenerateConfig);
+        }
+
+        if self.config_exists && !self.env_exists {
+            options.push(MenuSelection::GenerateEnv);
+        }
+
+        options.push(MenuSelection::CheckUpdates);
+
+        if self.env_exists && self.config_exists {
+            options.push(MenuSelection::Proceed);
+        }
+
+        options.push(MenuSelection::Cancel);
+        options
+    }
+
+    fn ensure_menu_selection(&mut self) {
+        let options = self.menu_options();
+
+        if !options.contains(&self.menu_selection) {
+            if let Some(first) = options.first() {
+                self.menu_selection = first.clone();
+            }
+        }
+    }
+
+    fn ensure_update_selection(&mut self) {
+        if self.update_selection_index >= self.update_infos.len() {
+            self.update_selection_index = self.update_infos.len().saturating_sub(1);
+        }
+    }
+
+    fn handle_registry_setup_events(&mut self) -> Result<Option<RegistryAction>> {
+        if event::poll(std::time::Duration::from_millis(100))? {
+            if let Event::Key(key) = event::read()? {
+                if key.kind == KeyEventKind::Press {
+                    if self.registry_form.editing
+                        && RegistryForm::is_input_field(self.registry_form.current_field)
+                    {
+                        match key.code {
+                            KeyCode::Enter | KeyCode::Esc => {
+                                self.registry_form.editing = false;
+                            }
+                            KeyCode::Backspace => {
+                                self.registry_form.get_current_value_mut().pop();
+                            }
+                            KeyCode::Char(c) => {
+                                if !key.modifiers.contains(KeyModifiers::CONTROL) {
+                                    self.registry_form.get_current_value_mut().push(c);
+                                }
+                            }
+                            _ => {}
+                        }
+                    } else {
+                        match key.code {
+                            KeyCode::Up => {
+                                if self.registry_form.current_field == 0 {
+                                    self.registry_form.current_field =
+                                        self.registry_form.total_items() - 1;
+                                } else {
+                                    self.registry_form.current_field -= 1;
+                                }
+                            }
+                            KeyCode::Down | KeyCode::Tab => {
+                                self.registry_form.current_field =
+                                    (self.registry_form.current_field + 1)
+                                        % self.registry_form.total_items();
+                            }
+                            KeyCode::Enter => {
+                                if RegistryForm::is_input_field(self.registry_form.current_field)
+                                {
+                                    self.registry_form.editing = true;
+                                } else {
+                                    return Ok(Some(RegistryAction::Submit));
+                                }
+                            }
+                            KeyCode::Char('s') => {
+                                if key.modifiers.contains(KeyModifiers::CONTROL) {
+                                    return Ok(Some(RegistryAction::Submit));
+                                }
+                            }
+                            KeyCode::Esc | KeyCode::Char('q') => {
+                                return Ok(Some(RegistryAction::Skip));
+                            }
+                            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                                self.running = false;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
+    async fn try_registry_login(&mut self) -> Result<bool> {
+        if !self.registry_form.validate() {
+            self.registry_status = Some(self.registry_form.error_message.clone());
+            return Ok(false);
+        }
+
+        let username = self.registry_form.username.trim().to_string();
+        let token = self.registry_form.token.trim().to_string();
+
+        if username.is_empty() || token.is_empty() {
+            self.registry_status = Some("Username and token are required".to_string());
+            return Ok(false);
+        }
+
+        self.registry_status = Some("Logging in to ghcr.io...".to_string());
+        self.add_log(&format!("🔐 Executing: docker login ghcr.io as {}", username));
+
+        let mut child = Command::new("docker")
+            .args(["login", "ghcr.io", "-u", &username, "--password-stdin"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin
+                .write_all(format!("{}\n", token).as_bytes())
+                .await?;
+        } else {
+            self.registry_status = Some("Failed to communicate with docker login".to_string());
+            return Ok(false);
+        }
+
+        let output = child.wait_with_output().await?;
+
+        if output.status.success() {
+            self.registry_status = Some("Authenticated with ghcr.io successfully".to_string());
+            self.ghcr_username = Some(username);
+            self.ghcr_token = Some(token.clone());
+            Ok(true)
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let first_line = stderr.lines().find(|line| !line.trim().is_empty());
+            self.registry_status = Some(format!(
+                "Docker login failed: {}",
+                first_line.unwrap_or("unknown error")
+            ));
+            Ok(false)
+        }
+    }
+
+    async fn load_updates(&mut self) -> Result<()> {
+        let client = Client::builder()
+            .timeout(std::time::Duration::from_secs(20))
+            .build()?;
+
+        self.logs.clear();
+
+        let token = if let Some(token) = self.ghcr_token.clone() {
+            Some(token)
+        } else {
+            let env_token = env::var("GHCR_TOKEN")
+                .or_else(|_| env::var("GITHUB_TOKEN"))
+                .or_else(|_| env::var("GH_TOKEN"))
+                .ok();
+            if env_token.is_some() {
+                self.ghcr_token = env_token.clone();
+            }
+            env_token
+        };
+
+        self.update_infos =
+            collect_update_infos(&client, token.as_deref()).await?;
+        self.ensure_update_selection();
+
+        if self.update_infos.is_empty() {
+            self.update_message =
+                Some("No GHCR-backed services were found in docker-compose.yaml".to_string());
+        } else {
+            self.update_message = Some(
+                "Use ↑/↓ to pick a service, Enter or P to pull :latest, R to refresh, Esc to go back"
+                    .to_string(),
+            );
+        }
+
+        Ok(())
+    }
+
+    async fn pull_selected_update(&mut self) -> Result<()> {
+        if self.update_infos.is_empty() {
+            return Ok(());
+        }
+
+        let index = self.update_selection_index.min(self.update_infos.len() - 1);
+        let reference;
+        let image;
+        let tag;
+
+        {
+            let info = &self.update_infos[index];
+            reference = info.pull_reference();
+            image = info.image.clone();
+            tag = info.current_tag.clone();
+        }
+
+        self.logs.clear();
+        self.add_log(&format!("⬇️  Executing: docker pull {}", reference));
+
+        let mut child = Command::new("docker")
+            .args(["pull", &reference])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| eyre!("Failed to capture docker pull stdout"))?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| eyre!("Failed to capture docker pull stderr"))?;
+
+        let mut stdout_reader = BufReader::new(stdout).lines();
+        let mut stderr_reader = BufReader::new(stderr).lines();
+
+        loop {
+            tokio::select! {
+                output = stdout_reader.next_line() => {
+                    match output {
+                        Ok(Some(line)) => self.add_log(&format!("ℹ️  {}", line)),
+                        Ok(None) => break,
+                        Err(e) => {
+                            self.add_log(&format!("❌ Error reading stdout: {}", e));
+                            break;
+                        }
+                    }
+                }
+                output = stderr_reader.next_line() => {
+                    match output {
+                        Ok(Some(line)) => self.add_log(&format!("⚠️  {}", line)),
+                        Ok(None) => break,
+                        Err(e) => {
+                            self.add_log(&format!("❌ Error reading stderr: {}", e));
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        let status = child.wait().await?;
+
+        if !status.success() {
+            return Err(eyre!("docker pull exited with a non-zero status"));
+        }
+
+        self.add_log("✅ Image pulled successfully");
+
+        match get_local_image_created(&image, &tag).await {
+            Ok(created) => {
+                if let Some(info) = self.update_infos.get_mut(index) {
+                    info.clear_local_error();
+                    info.apply_local_created(created);
+                }
+            }
+            Err(e) => {
+                if let Some(info) = self.update_infos.get_mut(index) {
+                    info.append_status(&format!("Failed to inspect local image: {}", e));
+                    info.apply_local_created(None);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn handle_update_list_events(&mut self) -> Result<Option<UpdateListAction>> {
+        self.ensure_update_selection();
+
         if event::poll(std::time::Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
                     match key.code {
                         KeyCode::Up => {
-                            self.menu_selection = match self.menu_selection {
-                                MenuSelection::Proceed => {
-                                    if !self.config_exists {
-                                        MenuSelection::GenerateConfig
-                                    } else if !self.env_exists {
-                                        MenuSelection::GenerateEnv
-                                    } else {
-                                        MenuSelection::Cancel
-                                    }
+                            if !self.update_infos.is_empty() {
+                                if self.update_selection_index == 0 {
+                                    self.update_selection_index = self.update_infos.len() - 1;
+                                } else {
+                                    self.update_selection_index -= 1;
                                 }
-                                MenuSelection::GenerateEnv => {
-                                    // Urutan: config dulu, baru env
-                                    MenuSelection::GenerateConfig
-                                }
-                                MenuSelection::GenerateConfig => MenuSelection::Cancel,
-                                MenuSelection::Cancel => {
-                                    if self.env_exists && self.config_exists {
-                                        MenuSelection::Proceed
-                                    } else if !self.config_exists {
-                                        MenuSelection::GenerateConfig
-                                    } else {
-                                        MenuSelection::GenerateEnv
-                                    }
-                                }
-                            };
+                            }
                         }
                         KeyCode::Down | KeyCode::Tab => {
-                            self.menu_selection = match self.menu_selection {
-                                MenuSelection::Proceed => MenuSelection::Cancel,
-                                MenuSelection::GenerateEnv => {
-                                    if self.config_exists && self.env_exists {
-                                        MenuSelection::Proceed
-                                    } else {
-                                        MenuSelection::Cancel
-                                    }
-                                }
-                                MenuSelection::GenerateConfig => {
-                                    // Urutan: config dulu, baru env
-                                    if !self.env_exists {
-                                        MenuSelection::GenerateEnv
-                                    } else {
-                                        MenuSelection::Cancel
-                                    }
-                                }
-                                MenuSelection::Cancel => {
-                                    if !self.config_exists {
-                                        MenuSelection::GenerateConfig
-                                    } else if !self.env_exists {
-                                        MenuSelection::GenerateEnv
-                                    } else {
-                                        MenuSelection::Proceed
-                                    }
-                                }
-                            };
+                            if !self.update_infos.is_empty() {
+                                self.update_selection_index =
+                                    (self.update_selection_index + 1) % self.update_infos.len();
+                            }
+                        }
+                        KeyCode::Enter => {
+                            if !self.update_infos.is_empty() {
+                                return Ok(Some(UpdateListAction::Pull));
+                            }
+                        }
+                        KeyCode::Char('p') | KeyCode::Char('P') => {
+                            if !self.update_infos.is_empty() {
+                                return Ok(Some(UpdateListAction::Pull));
+                            }
+                        }
+                        KeyCode::Char('r') | KeyCode::Char('R') => {
+                            return Ok(Some(UpdateListAction::Refresh));
+                        }
+                        KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q') => {
+                            return Ok(Some(UpdateListAction::Back));
+                        }
+                        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                            self.running = false;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
+    fn handle_confirmation_events(&mut self) -> Result<Option<MenuSelection>> {
+        self.ensure_menu_selection();
+
+        if event::poll(std::time::Duration::from_millis(100))? {
+            if let Event::Key(key) = event::read()? {
+                if key.kind == KeyEventKind::Press {
+                    let options = self.menu_options();
+                    if options.is_empty() {
+                        return Ok(None);
+                    }
+
+                    let mut index = options
+                        .iter()
+                        .position(|option| option == &self.menu_selection)
+                        .unwrap_or(0);
+
+                    match key.code {
+                        KeyCode::Up => {
+                            if index == 0 {
+                                index = options.len() - 1;
+                            } else {
+                                index -= 1;
+                            }
+                            self.menu_selection = options[index].clone();
+                        }
+                        KeyCode::Down | KeyCode::Tab => {
+                            index = (index + 1) % options.len();
+                            self.menu_selection = options[index].clone();
                         }
                         KeyCode::Enter => {
                             return Ok(Some(self.menu_selection.clone()));
@@ -676,11 +1100,20 @@ impl App {
 
     fn render(&mut self, frame: &mut Frame) {
         match &self.state {
+            AppState::RegistrySetup => {
+                let view = RegistrySetupView {
+                    form: &self.registry_form,
+                    status: self.registry_status.as_deref(),
+                };
+                ui::render_registry_setup(frame, &view);
+            }
             AppState::Confirmation => {
+                let menu_options = self.menu_options();
                 let view = ConfirmationView {
                     env_exists: self.env_exists,
                     config_exists: self.config_exists,
                     menu_selection: &self.menu_selection,
+                    menu_options: &menu_options,
                 };
                 ui::render_confirmation(frame, &view);
             }
@@ -696,6 +1129,26 @@ impl App {
                     selected_index: self.config_selection_index,
                 };
                 ui::render_config_selection(frame, &view);
+            }
+            AppState::UpdateList => {
+                let view = UpdateListView {
+                    updates: &self.update_infos,
+                    selected_index: self.update_selection_index,
+                    message: self.update_message.as_deref(),
+                    logs: &self.logs,
+                    pulling: false,
+                };
+                ui::render_update_list(frame, &view);
+            }
+            AppState::UpdatePulling => {
+                let view = UpdateListView {
+                    updates: &self.update_infos,
+                    selected_index: self.update_selection_index,
+                    message: self.update_message.as_deref(),
+                    logs: &self.logs,
+                    pulling: true,
+                };
+                ui::render_update_list(frame, &view);
             }
             AppState::Installing => {
                 let view = InstallingView {

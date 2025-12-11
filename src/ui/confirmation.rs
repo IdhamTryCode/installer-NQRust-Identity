@@ -13,6 +13,7 @@ pub struct ConfirmationView<'a> {
     pub env_exists: bool,
     pub config_exists: bool,
     pub menu_selection: &'a MenuSelection,
+    pub menu_options: &'a [MenuSelection],
 }
 
 pub fn render_confirmation(frame: &mut Frame, view: &ConfirmationView<'_>) {
@@ -143,56 +144,30 @@ pub fn render_confirmation(frame: &mut Frame, view: &ConfirmationView<'_>) {
 
     let mut menu_lines = vec![Line::from("")];
 
-    // Urutan: pilih config dulu, baru bisa isi env
-    if !view.config_exists {
-        let style = if *view.menu_selection == MenuSelection::GenerateConfig {
+    for option in view.menu_options {
+        let (label, fg_color, highlight_color) = match option {
+            MenuSelection::GenerateConfig => (
+                "Generate config.yaml",
+                get_orange_color(),
+                get_orange_color(),
+            ),
+            MenuSelection::GenerateEnv => ("Generate .env", get_orange_color(), get_orange_color()),
+            MenuSelection::CheckUpdates => ("Check for updates", Color::Cyan, Color::Cyan),
+            MenuSelection::Proceed => ("Proceed with installation", Color::Green, Color::Green),
+            MenuSelection::Cancel => ("Cancel", Color::Red, Color::Red),
+        };
+
+        let style = if option == view.menu_selection {
             Style::default()
                 .fg(Color::Black)
-                .bg(get_orange_color())
+                .bg(highlight_color)
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(get_orange_color())
+            Style::default().fg(fg_color)
         };
-        menu_lines.push(Line::from(Span::styled("  ▶  Generate config.yaml", style)));
-    }
 
-    // Hanya tampilkan GenerateEnv jika config sudah ada
-    if !view.env_exists && view.config_exists {
-        let style = if *view.menu_selection == MenuSelection::GenerateEnv {
-            Style::default()
-                .fg(Color::Black)
-                .bg(get_orange_color())
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(get_orange_color())
-        };
-        menu_lines.push(Line::from(Span::styled("  ▶  Generate .env", style)));
+        menu_lines.push(Line::from(Span::styled(format!("  ▶  {}", label), style)));
     }
-
-    if all_files_exist {
-        let style = if *view.menu_selection == MenuSelection::Proceed {
-            Style::default()
-                .fg(Color::Black)
-                .bg(Color::Green)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::Green)
-        };
-        menu_lines.push(Line::from(Span::styled(
-            "  ▶  Proceed with Installation",
-            style,
-        )));
-    }
-
-    let cancel_style = if *view.menu_selection == MenuSelection::Cancel {
-        Style::default()
-            .fg(Color::Black)
-            .bg(Color::Red)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(Color::Red)
-    };
-    menu_lines.push(Line::from(Span::styled("  ▶  Cancel", cancel_style)));
 
     let menu = Paragraph::new(menu_lines)
         .block(
