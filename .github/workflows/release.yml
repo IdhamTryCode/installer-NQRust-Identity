@@ -30,6 +30,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y dpkg-dev
           cargo install cargo-deb --locked
+          cargo install cargo-edit --locked
+
+      - name: Sync Cargo version with tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "Setting Cargo.toml version to ${VERSION} from tag ${GITHUB_REF_NAME}"
+          cargo set-version "${VERSION}"
 
       - name: Build release binary
         run: cargo build --release
