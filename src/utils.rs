@@ -8,19 +8,43 @@ pub fn find_file(filename: &str) -> bool {
 }
 
 pub fn project_root() -> PathBuf {
-    let mut current = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let start = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
 
-    if current
+    // Walk up to find a directory that contains either docker-compose files or Cargo.toml
+    let candidates = [
+        "docker-compose.yml",
+        "docker-compose.yaml",
+        "compose.yml",
+        "compose.yaml",
+        "Cargo.toml",
+    ];
+
+    let mut current = start.as_path();
+    while let Some(dir) = current.parent().or_else(|| Some(current)) {
+        if candidates.iter().any(|name| dir.join(name).exists()) {
+            return dir.to_path_buf();
+        }
+
+        // If we've reached filesystem root, stop
+        if dir.parent().is_none() {
+            break;
+        }
+
+        current = dir.parent().unwrap_or(dir);
+    }
+
+    // Fallback: if running from target/*/ build dirs, hop two parents as before
+    if start
         .to_str()
         .map(|s| s.contains("target"))
         .unwrap_or(false)
     {
-        if let Some(parent) = current.parent().and_then(|p| p.parent()) {
-            current = parent.to_path_buf();
+        if let Some(parent) = start.parent().and_then(|p| p.parent()) {
+            return parent.to_path_buf();
         }
     }
 
-    current
+    start
 }
 
 #[cfg(test)]

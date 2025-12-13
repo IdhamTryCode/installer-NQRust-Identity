@@ -612,6 +612,11 @@ impl App {
         Ok(())
     }
 
+    fn add_log_and_redraw(&mut self, terminal: &mut DefaultTerminal, message: &str) {
+        self.add_log(message);
+        let _ = self.redraw(terminal);
+    }
+
     async fn pull_selected_update(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         if self.update_infos.is_empty() {
             return Ok(());
@@ -621,7 +626,7 @@ impl App {
         let info = self.update_infos[index].clone();
 
         if info.is_self {
-            return self.self_update(info).await;
+            return self.self_update(info, terminal).await;
         }
 
         let reference = info.pull_reference();
@@ -629,8 +634,10 @@ impl App {
         let tag = info.current_tag.clone();
 
         self.logs.clear();
-        self.add_log(&format!("⬇️  Executing: docker pull {}", reference));
-        let _ = self.redraw(terminal);
+        self.add_log_and_redraw(
+            terminal,
+            &format!("⬇️  Executing: docker pull {}", reference),
+        );
 
         let mut child = Command::new("docker")
             .args(["pull", &reference])
@@ -656,13 +663,11 @@ impl App {
                 output = stdout_reader.next_line() => {
                     match output {
                         Ok(Some(line)) => {
-                            self.add_log(&format!("ℹ️  {}", line));
-                            let _ = self.redraw(terminal);
+                            self.add_log_and_redraw(terminal, &format!("ℹ️  {}", line));
                         }
                         Ok(None) => break,
                         Err(e) => {
-                            self.add_log(&format!("❌ Error reading stdout: {}", e));
-                            let _ = self.redraw(terminal);
+                            self.add_log_and_redraw(terminal, &format!("❌ Error reading stdout: {}", e));
                             break;
                         }
                     }
@@ -670,13 +675,11 @@ impl App {
                 output = stderr_reader.next_line() => {
                     match output {
                         Ok(Some(line)) => {
-                            self.add_log(&format!("⚠️  {}", line));
-                            let _ = self.redraw(terminal);
+                            self.add_log_and_redraw(terminal, &format!("⚠️  {}", line));
                         }
                         Ok(None) => break,
                         Err(e) => {
-                            self.add_log(&format!("❌ Error reading stderr: {}", e));
-                            let _ = self.redraw(terminal);
+                            self.add_log_and_redraw(terminal, &format!("❌ Error reading stderr: {}", e));
                             break;
                         }
                     }
@@ -690,8 +693,7 @@ impl App {
             return Err(eyre!("docker pull exited with a non-zero status"));
         }
 
-        self.add_log("✅ Image pulled successfully");
-        let _ = self.redraw(terminal);
+        self.add_log_and_redraw(terminal, "✅ Image pulled successfully");
 
         match get_local_image_created(&image, &tag).await {
             Ok(created) => {
@@ -711,7 +713,11 @@ impl App {
         Ok(())
     }
 
-    async fn self_update(&mut self, info: UpdateInfo) -> Result<()> {
+    async fn self_update(
+        &mut self,
+        info: UpdateInfo,
+        terminal: &mut DefaultTerminal,
+    ) -> Result<()> {
         let download_url = info
             .download_url
             .clone()
@@ -725,7 +731,10 @@ impl App {
         let checksum_url = info.checksum_url.clone();
 
         self.logs.clear();
-        self.add_log(&format!("⬇️  Downloading installer {}", version_label));
+        self.add_log_and_redraw(
+            terminal,
+            &format!("⬇️  Downloading installer {}", version_label),
+        );
 
         let client = Client::builder()
             .timeout(std::time::Duration::from_secs(60))
@@ -744,7 +753,7 @@ impl App {
         fs::write(&deb_path, &deb_bytes)?;
 
         if let Some(sum_url) = checksum_url {
-            self.add_log("🔍 Verifying checksum");
+            self.add_log_and_redraw(terminal, "🔍 Verifying checksum");
 
             let sums = client
                 .get(&sum_url)
@@ -793,18 +802,19 @@ impl App {
                     return Err(eyre!("Checksum mismatch for downloaded installer"));
                 }
 
-                self.add_log("✅ Checksum verified");
+                self.add_log_and_redraw(terminal, "✅ Checksum verified");
             } else {
-                self.add_log(
+                self.add_log_and_redraw(
+                    terminal,
                     "⚠️  Could not find matching entry in SHA256SUMS; skipping checksum check",
                 );
             }
         }
 
-        self.add_log(&format!(
-            "📦 Executing: sudo dpkg -i {}",
-            deb_path.display()
-        ));
+        self.add_log_and_redraw(
+            terminal,
+            &format!("📦 Executing: sudo dpkg -i {}", deb_path.display()),
+        );
 
         let deb_arg = deb_path.to_string_lossy().to_string();
 
@@ -817,14 +827,20 @@ impl App {
         let output = status.wait_with_output().await?;
 
         if !output.status.success() {
-            self.add_log(&format!(
-                "❌ dpkg failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            ));
+            self.add_log_and_redraw(
+                terminal,
+                &format!(
+                    "❌ dpkg failed: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                ),
+            );
             return Err(eyre!("dpkg -i failed"));
         }
 
-        self.add_log("✅ Installer updated. Restart this program to use the new version.");
+        self.add_log_and_redraw(
+            terminal,
+            "✅ Installer updated. Restart this program to use the new version.",
+        );
 
         Ok(())
     }
@@ -1194,11 +1210,30 @@ impl App {
     async fn run_docker_compose(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         let compose_cmd = self.detect_compose_command().await?;
 
+        let project_root = utils::project_root();
+        let compose_files = [
+            "docker-compose.yml",
+            "docker-compose.yaml",
+            "compose.yml",
+            "compose.yaml",
+        ];
+
+        let has_compose = compose_files
+            .iter()
+            .any(|name| project_root.join(name).exists());
+
+        if !has_compose {
+            let mut msg = format!(
+                "Docker Compose file not found in {}. Please run the installer from the project directory containing docker-compose.yml",
+                project_root.display()
+            );
+            msg.push_str(" or provide the compose file there.");
+            return Err(color_eyre::eyre::eyre!(msg));
+        }
+
         self.add_log("🔨 Step 1/2: Building images...");
         self.add_log(&format!("📦 Executing: {} build", compose_cmd.join(" ")));
         let _ = self.redraw(terminal);
-
-        let project_root = utils::project_root();
 
         let mut build_child = {
             let mut cmd = Command::new(&compose_cmd[0]);
