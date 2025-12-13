@@ -24,23 +24,47 @@ Before running the installer, ensure you have:
 
 ## Quick Start
 
-### 1. Clone the Repository
+### Option A: One-liner install (preferred)
+```bash
+curl -fsSL https://raw.githubusercontent.com/NexusQuantum/installer-NQRust-Analytics/main/scripts/install/install.sh | bash
+```
+Installs the latest `.deb` from GitHub Releases and makes `nqrust-analytics` available in `$PATH`. Then run:
+```bash
+nqrust-analytics install
+```
 
+### Option B: Install from release asset
+1) Download the latest `.deb` from the [Releases](https://github.com/NexusQuantum/installer-NQRust-Analytics/releases) page. Example:
+```bash
+curl -LO https://github.com/NexusQuantum/installer-NQRust-Analytics/releases/latest/download/nqrust-analytics_*.deb
+```
+2) Install the package (adds the `nqrust-analytics` binary into `/usr/bin`):
+```bash
+sudo apt install ./nqrust-analytics_*.deb
+# or: sudo dpkg -i nqrust-analytics_*.deb
+```
+3) Run the installer:
+```bash
+nqrust-analytics install
+```
+> Note: the binary name is `nqrust-analytics` (replaces the older `installer-analytics`).
+
+### Option C: Build from source
+
+1) Clone the repository
 ```bash
 git clone https://github.com/NexusQuantum/installer-NQRust-Analytics.git
 cd installer-NQRust-Analytics
 ```
 
-### 2. Authenticate with GitHub Container Registry
-
+2) Authenticate with GitHub Container Registry
 ```bash
 docker login ghcr.io
 # Username: your-github-username
 # Password: your-personal-access-token (NOT your GitHub password)
 ```
 
-### 3. Run the Installer
-
+3) Run the installer
 ```bash
 cargo run
 ```

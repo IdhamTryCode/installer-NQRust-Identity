@@ -495,7 +495,7 @@ impl App {
 
         let response = client
             .get("https://api.github.com/user")
-            .header("User-Agent", "installer-analytics")
+            .header("User-Agent", "nqrust-analytics")
             .header("Accept", "application/vnd.github+json")
             .bearer_auth(token)
             .send()

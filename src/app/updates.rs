@@ -244,7 +244,7 @@ async fn fetch_package_versions(
     for url in endpoints {
         let mut request = client
             .get(&url)
-            .header("User-Agent", "installer-analytics")
+            .header("User-Agent", "nqrust-analytics")
             .header("Accept", "application/vnd.github+json");
 
         if let Some(token) = token {
