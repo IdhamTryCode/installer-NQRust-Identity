@@ -1266,14 +1266,23 @@ impl App {
         self.add_log(&format!("📦 Executing: {} build", compose_cmd.join(" ")));
         let _ = self.redraw(terminal);
 
+        let buildkit_available = self.buildkit_available().await.unwrap_or(false);
+        if buildkit_available {
+            self.add_log_and_redraw(terminal, "🛠 Using BuildKit for builds");
+        } else {
+            self.add_log_and_redraw(terminal, "⚠️ BuildKit not available; using legacy builder");
+        }
+
         let mut build_child = {
             let mut cmd = Command::new(&compose_cmd[0]);
             if compose_cmd.len() > 1 {
                 cmd.arg(&compose_cmd[1]);
             }
-            cmd.arg("build")
-                .env("DOCKER_BUILDKIT", "1")
-                .env("DOCKER_CLI_PROGRESS", "plain")
+            cmd.arg("build");
+            if buildkit_available {
+                cmd.env("DOCKER_BUILDKIT", "1");
+            }
+            cmd.env("DOCKER_CLI_PROGRESS", "plain")
                 .current_dir(&project_root)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
@@ -1339,7 +1348,6 @@ impl App {
                 cmd.arg(&compose_cmd[1]);
             }
             cmd.args(["up", "-d"])
-                .env("DOCKER_BUILDKIT", "1")
                 .env("DOCKER_CLI_PROGRESS", "plain")
                 .current_dir(&project_root)
                 .stdout(Stdio::piped())
@@ -1458,6 +1466,17 @@ impl App {
         let step: u32 = nums.next()?.parse().ok()?;
         let total: u32 = nums.next()?.parse().ok()?;
         Some((step, total))
+    }
+
+    async fn buildkit_available(&self) -> Result<bool> {
+        let status = Command::new("docker")
+            .args(["buildx", "version"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await?
+            .success();
+        Ok(status)
     }
 
     fn extract_service_name(&self, line: &str) -> Option<String> {
