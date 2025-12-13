@@ -1400,6 +1400,14 @@ impl App {
     fn process_log_line(&mut self, line: &str) {
         let lower = line.to_lowercase();
 
+        // Update progress during Docker build steps when available (e.g., "Step 1/4 : FROM busybox").
+        if let Some((step, total)) = Self::parse_build_step(line) {
+            if total > 0 {
+                let pct = 5.0 + (step as f64 / total as f64) * 45.0; // 5-50% during build phase
+                self.progress = self.progress.max(pct.min(50.0));
+            }
+        }
+
         if lower.contains("pulling") {
             if let Some(service) = self.extract_service_name(line) {
                 self.current_service = service.clone();
@@ -1434,6 +1442,22 @@ impl App {
         } else if !line.trim().is_empty() {
             self.add_log(&format!("ℹ️  {}", line));
         }
+    }
+
+    fn parse_build_step(line: &str) -> Option<(u32, u32)> {
+        // Expected format prefix: "Step X/Y" or "Step X/Y :"
+        let trimmed = line.trim();
+        if !trimmed.starts_with("Step ") {
+            return None;
+        }
+
+        let after = trimmed.strip_prefix("Step ")?;
+        let mut parts = after.split_whitespace();
+        let frac = parts.next()?; // e.g., "1/4"
+        let mut nums = frac.split('/');
+        let step: u32 = nums.next()?.parse().ok()?;
+        let total: u32 = nums.next()?.parse().ok()?;
+        Some((step, total))
     }
 
     fn extract_service_name(&self, line: &str) -> Option<String> {
