@@ -37,6 +37,7 @@ need_cmd() {
 need_cmd curl
 need_cmd sha256sum
 need_cmd sudo
+need_cmd python3
 
 fetch() {
   local url="$1" out="$2"
@@ -44,7 +45,18 @@ fetch() {
   curl -fL --retry 3 --retry-delay 1 -o "${out}" "${url}"
 }
 
-fetch "${DEB_URL}" "${TMPDIR}/${DEB_NAME}"
+if ! fetch "${DEB_URL}" "${TMPDIR}/${DEB_NAME}"; then
+  echo "[WARN] Alias ${DEB_NAME} not found, falling back to latest versioned .deb" >&2
+  API_URL="https://api.github.com/repos/${REPO}/releases/latest"
+  ASSET_URL=$(curl -fsSL "${API_URL}" | python3 -c "import sys, json; data=json.load(sys.stdin); assets=data.get('assets',[]); deb=[a['browser_download_url'] for a in assets if a['name'].endswith('_${ARCH}.deb')]; print(deb[0] if deb else '')")
+  if [[ -z "${ASSET_URL}" ]]; then
+    echo "[ERROR] Could not locate a .deb asset for arch ${ARCH} in the latest release." >&2
+    exit 1
+  fi
+  DEB_NAME=$(basename "${ASSET_URL}")
+  fetch "${ASSET_URL}" "${TMPDIR}/${DEB_NAME}"
+fi
+
 fetch "${SUMS_URL}" "${TMPDIR}/SHA256SUMS"
 
 echo "[INFO] Verifying checksum"
