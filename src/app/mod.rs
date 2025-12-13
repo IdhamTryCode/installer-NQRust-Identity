@@ -911,6 +911,33 @@ impl App {
         Ok(None)
     }
 
+    async fn detect_compose_command(&self) -> Result<Vec<String>> {
+        // Prefer the integrated Docker CLI plugin first
+        let docker_compose = Command::new("docker")
+            .args(["compose", "version"])
+            .output()
+            .await;
+
+        if let Ok(output) = docker_compose {
+            if output.status.success() {
+                return Ok(vec!["docker".to_string(), "compose".to_string()]);
+            }
+        }
+
+        // Fallback to standalone docker-compose
+        let standalone = Command::new("docker-compose").arg("version").output().await;
+
+        if let Ok(output) = standalone {
+            if output.status.success() {
+                return Ok(vec!["docker-compose".to_string()]);
+            }
+        }
+
+        Err(eyre!(
+            "Could not find Docker Compose. Tried `docker compose` and `docker-compose`. Install Docker Compose v2 or the standalone docker-compose."
+        ))
+    }
+
     fn handle_form_events(&mut self) -> Result<Option<bool>> {
         if event::poll(std::time::Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
@@ -1149,14 +1176,21 @@ impl App {
     }
 
     async fn run_docker_compose(&mut self) -> Result<()> {
-        self.add_log("🔨 Step 1/2: Building images...");
-        self.add_log("📦 Executing: docker compose build");
+        let compose_cmd = self.detect_compose_command().await?;
 
-        let mut build_child = Command::new("docker")
-            .args(["compose", "build"])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
+        self.add_log("🔨 Step 1/2: Building images...");
+        self.add_log(&format!("📦 Executing: {} build", compose_cmd.join(" ")));
+
+        let mut build_child = {
+            let mut cmd = Command::new(&compose_cmd[0]);
+            if compose_cmd.len() > 1 {
+                cmd.arg(&compose_cmd[1]);
+            }
+            cmd.arg("build")
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()?
+        };
 
         let build_stdout = build_child.stdout.take().expect("Failed to capture stdout");
         let build_stderr = build_child.stderr.take().expect("Failed to capture stderr");
@@ -1199,13 +1233,18 @@ impl App {
         self.progress = 50.0;
 
         self.add_log("🚀 Step 2/2: Starting services...");
-        self.add_log("📦 Executing: docker compose up -d");
+        self.add_log(&format!("📦 Executing: {} up -d", compose_cmd.join(" ")));
 
-        let mut up_child = Command::new("docker")
-            .args(["compose", "up", "-d"])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
+        let mut up_child = {
+            let mut cmd = Command::new(&compose_cmd[0]);
+            if compose_cmd.len() > 1 {
+                cmd.arg(&compose_cmd[1]);
+            }
+            cmd.args(["up", "-d"])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()?
+        };
 
         let up_stdout = up_child.stdout.take().expect("Failed to capture stdout");
         let up_stderr = up_child.stderr.take().expect("Failed to capture stderr");
