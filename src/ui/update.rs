@@ -16,6 +16,7 @@ pub struct UpdateListView<'a> {
     pub message: Option<&'a str>,
     pub logs: &'a [String],
     pub pulling: bool,
+    pub progress: Option<f64>,
 }
 
 pub fn render_update_list(frame: &mut Frame, view: &UpdateListView<'_>) {
@@ -158,7 +159,7 @@ pub fn render_update_list(frame: &mut Frame, view: &UpdateListView<'_>) {
         .wrap(Wrap { trim: true });
     frame.render_widget(message, chunks[2]);
 
-    let log_lines: Vec<Line> = if view.logs.is_empty() {
+    let mut log_lines: Vec<Line> = if view.logs.is_empty() {
         vec![Line::from(Span::styled(
             "No recent docker operations",
             Style::default().fg(Color::DarkGray),
@@ -181,6 +182,22 @@ pub fn render_update_list(frame: &mut Frame, view: &UpdateListView<'_>) {
             })
             .collect()
     };
+
+    // Prepend a simple progress bar when pulling and a value is provided.
+    if view.pulling {
+        if let Some(pct) = view.progress {
+            let pct = pct.clamp(0.0, 100.0);
+            let bar_space = chunks[3].width.saturating_sub(12) as usize;
+            let filled_width = ((bar_space as f64) * (pct / 100.0)).round() as usize;
+            let filled = "█".repeat(filled_width.min(bar_space));
+            let empty = "░".repeat(bar_space.saturating_sub(filled.len()));
+            let bar = format!("Progress: [{filled}{empty}] {pct:.0}%");
+            log_lines.insert(
+                0,
+                Line::from(Span::styled(bar, Style::default().fg(get_orange_color()))),
+            );
+        }
+    }
 
     let logs_widget = Paragraph::new(log_lines)
         .block(

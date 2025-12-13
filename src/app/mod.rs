@@ -572,6 +572,7 @@ impl App {
             .build()?;
 
         self.logs.clear();
+        self.progress = 0.0;
 
         let token = if let Some(token) = self.ghcr_token.clone() {
             Some(token)
@@ -621,6 +622,9 @@ impl App {
         if self.update_infos.is_empty() {
             return Ok(());
         }
+
+        // Reset progress for pull/self-update flows
+        self.progress = 0.0;
 
         let index = self.update_selection_index.min(self.update_infos.len() - 1);
         let info = self.update_infos[index].clone();
@@ -735,6 +739,7 @@ impl App {
             terminal,
             &format!("⬇️  Downloading installer {}", version_label),
         );
+        self.progress = 0.0;
 
         let client = Client::builder()
             .timeout(std::time::Duration::from_secs(60))
@@ -760,6 +765,8 @@ impl App {
                 let pct = ((downloaded * 100) / total).min(100);
                 if pct >= last_logged + 5 || downloaded == total {
                     self.add_log_and_redraw(terminal, &format!("⬇️  Downloading... {}%", pct));
+                    self.progress = pct as f64;
+                    let _ = self.redraw(terminal);
                     last_logged = pct;
                 }
             } else {
@@ -775,6 +782,7 @@ impl App {
         if let Some(total) = total {
             let pct = ((downloaded * 100) / total).min(100);
             self.add_log_and_redraw(terminal, &format!("⬇️  Download complete ({}%)", pct));
+            self.progress = pct as f64;
         } else {
             self.add_log_and_redraw(terminal, "⬇️  Download complete");
         }
@@ -871,6 +879,8 @@ impl App {
             terminal,
             "✅ Installer updated. Restart this program to use the new version.",
         );
+        self.progress = 100.0;
+        let _ = self.redraw(terminal);
 
         Ok(())
     }
@@ -1270,7 +1280,13 @@ impl App {
         if buildkit_available {
             self.add_log_and_redraw(terminal, "🛠 Using BuildKit for builds");
         } else {
-            self.add_log_and_redraw(terminal, "⚠️ BuildKit not available; using legacy builder");
+            self.add_log_and_redraw(
+                terminal,
+                "⚠️ BuildKit (docker buildx) not available. Please install docker-buildx-plugin and retry.",
+            );
+            return Err(color_eyre::eyre::eyre!(
+                "BuildKit is required but docker buildx is missing"
+            ));
         }
 
         let mut build_child = {
@@ -1542,6 +1558,7 @@ impl App {
                     message: self.update_message.as_deref(),
                     logs: &self.logs,
                     pulling: false,
+                    progress: None,
                 };
                 ui::render_update_list(frame, &view);
             }
@@ -1552,6 +1569,7 @@ impl App {
                     message: self.update_message.as_deref(),
                     logs: &self.logs,
                     pulling: true,
+                    progress: Some(self.progress),
                 };
                 ui::render_update_list(frame, &view);
             }
