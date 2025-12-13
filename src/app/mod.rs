@@ -1211,6 +1211,7 @@ impl App {
         let compose_cmd = self.detect_compose_command().await?;
 
         let project_root = utils::project_root();
+        utils::ensure_compose_bundle(&project_root)?;
         let compose_files = [
             "docker-compose.yml",
             "docker-compose.yaml",
