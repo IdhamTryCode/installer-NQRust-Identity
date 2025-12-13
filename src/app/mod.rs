@@ -740,14 +740,44 @@ impl App {
             .timeout(std::time::Duration::from_secs(60))
             .build()?;
 
-        let deb_bytes = client
+        let mut response = client
             .get(&download_url)
             .header("User-Agent", "nqrust-analytics")
             .send()
             .await?
             .error_for_status()?;
 
-        let deb_bytes = deb_bytes.bytes().await?;
+        let total = response.content_length();
+        let mut downloaded: u64 = 0;
+        let mut last_logged: u64 = 0;
+        let mut deb_bytes: Vec<u8> = Vec::new();
+
+        while let Some(chunk) = response.chunk().await? {
+            downloaded += chunk.len() as u64;
+            deb_bytes.extend_from_slice(&chunk);
+
+            if let Some(total) = total {
+                let pct = ((downloaded * 100) / total).min(100);
+                if pct >= last_logged + 5 || downloaded == total {
+                    self.add_log_and_redraw(terminal, &format!("⬇️  Downloading... {}%", pct));
+                    last_logged = pct;
+                }
+            } else {
+                // No content-length; log every ~5 MB
+                let mb = downloaded / (1024 * 1024);
+                if mb >= last_logged + 5 {
+                    self.add_log_and_redraw(terminal, &format!("⬇️  Downloaded {} MB", mb));
+                    last_logged = mb;
+                }
+            }
+        }
+
+        if let Some(total) = total {
+            let pct = ((downloaded * 100) / total).min(100);
+            self.add_log_and_redraw(terminal, &format!("⬇️  Download complete ({}%)", pct));
+        } else {
+            self.add_log_and_redraw(terminal, "⬇️  Download complete");
+        }
 
         let deb_path = env::temp_dir().join(format!("nqrust-analytics-{}.deb", version_label));
         fs::write(&deb_path, &deb_bytes)?;
@@ -1242,6 +1272,7 @@ impl App {
                 cmd.arg(&compose_cmd[1]);
             }
             cmd.arg("build")
+                .env("DOCKER_BUILDKIT", "1")
                 .env("DOCKER_CLI_PROGRESS", "plain")
                 .current_dir(&project_root)
                 .stdout(Stdio::piped())
@@ -1308,6 +1339,7 @@ impl App {
                 cmd.arg(&compose_cmd[1]);
             }
             cmd.args(["up", "-d"])
+                .env("DOCKER_BUILDKIT", "1")
                 .env("DOCKER_CLI_PROGRESS", "plain")
                 .current_dir(&project_root)
                 .stdout(Stdio::piped())
