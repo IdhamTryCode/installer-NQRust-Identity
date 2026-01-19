@@ -1151,6 +1151,13 @@ impl App {
             .to_string();
         let user_uuid = format!("demo-user-{}", uuid_fragment);
 
+        // Generate a secure JWT secret (64 hex characters = 256 bits)
+        let jwt_secret = format!(
+            "{}{}",
+            uuid::Uuid::new_v4().to_string().replace("-", ""),
+            uuid::Uuid::new_v4().to_string().replace("-", "")
+        );
+
         let mut env_content = utils::ENV_TEMPLATE.to_string();
 
         // Default values
@@ -1159,6 +1166,7 @@ impl App {
         env_content = env_content.replace("{{GENERATION_MODEL}}", "default");
         env_content = env_content.replace("{{HOST_PORT}}", "3000");
         env_content = env_content.replace("{{AI_SERVICE_FORWARD_PORT}}", "5555");
+        env_content = env_content.replace("{{JWT_SECRET}}", &jwt_secret);
 
         // Set API key based on provider
         let env_key = self.form_data.get_env_key_name();
