@@ -75,6 +75,41 @@ docker login ghcr.io
 cargo run
 ```
 
+### Option D: Airgapped/Offline Installation
+
+For environments **without internet access** (airgapped, isolated networks, or offline VMs):
+
+**On a machine with internet (build machine):**
+```bash
+# 1. Clone and checkout airgapped branch
+git clone https://github.com/NexusQuantum/installer-NQRust-Analytics.git
+cd installer-NQRust-Analytics
+git checkout airgapped-single-binary
+
+# 2. Login to GitHub Container Registry
+docker login ghcr.io
+
+# 3. Build airgapped binary (~3-4 GB, includes all Docker images)
+./scripts/airgapped/build-single-binary.sh
+```
+
+**Transfer to airgapped machine** (via USB/SCP/physical media):
+```bash
+# Copy the single binary file
+cp nqrust-analytics-airgapped /path/to/transfer/
+```
+
+**On airgapped machine (no internet needed):**
+```bash
+# 1. Make executable
+chmod +x nqrust-analytics-airgapped
+
+# 2. Run installer (auto-extracts and loads Docker images)
+./nqrust-analytics-airgapped install
+```
+
+> 📖 **See [Airgapped Installation Guide](docs/AIRGAPPED-INSTALLATION.md) for complete instructions, troubleshooting, and FAQ.**
+
 ## Usage Guide
 
 The installer provides an interactive TUI with the following screens:
