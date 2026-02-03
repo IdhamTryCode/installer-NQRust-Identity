@@ -106,14 +106,73 @@ scp nqrust-analytics-airgapped.sha256 user@airgapped-host:~/
 
 ---
 
+## Docker Airgapped Installer (Optional)
+
+If the airgapped VM **does not have Docker** yet, use this installer to install the full Docker stack offline:
+
+- **Docker CE** (engine + CLI)
+- **Docker Compose v2** (`docker compose` plugin)
+- **Docker Buildx** (BuildKit)
+- **containerd**
+
+### Building the Docker Airgapped Bundle (machine with internet)
+
+**Prerequisites:** Docker and `curl`/`gpg` on the build machine.
+
+1. **Download packages for your target distro:**
+   ```bash
+   chmod +x scripts/airgapped/download-docker-packages.sh
+   ./scripts/airgapped/download-docker-packages.sh ubuntu24.04
+   ```
+   Supported: `ubuntu24.04`, `ubuntu22.04`, `debian12`.
+
+2. **Or build a full bundle (multiple distros + tarball):**
+   ```bash
+   chmod +x scripts/airgapped/build-docker-airgapped-bundle.sh
+   ./scripts/airgapped/build-docker-airgapped-bundle.sh ubuntu24.04
+   # Or: ./scripts/airgapped/build-docker-airgapped-bundle.sh "ubuntu24.04 ubuntu22.04"
+   ```
+
+3. **Output:**
+   - `build/docker-packages/<distro>/` — folder with `.deb` files and `install-docker-offline.sh`
+   - Or `build/docker-airgapped-YYYYMMDD.tar.gz` — tarball to transfer
+
+### Installing Docker on the Airgapped VM
+
+1. Transfer the folder (or tarball) to the VM (USB/SCP).
+2. If you transferred a tarball:
+   ```bash
+   tar xzf docker-airgapped-*.tar.gz
+   cd docker-packages/ubuntu24.04   # or your distro
+   ```
+3. Run the installer:
+   ```bash
+   chmod +x install-docker-offline.sh
+   sudo ./install-docker-offline.sh
+   ```
+4. **Add your user to the `docker` group** (required for NQRust Analytics installer to access the daemon):
+   ```bash
+   sudo usermod -aG docker $USER
+   ```
+   Then log out and back in.
+
+**Note:** The VM must match the distro you downloaded (e.g. Ubuntu 24.04 for `ubuntu24.04`). The script uses Docker on the build machine to download all required `.deb` packages and dependencies.
+
+---
+
 ## Installation on Airgapped Machine
 
 ### Prerequisites
 
-**On the airgapped machine:**
-- Docker and Docker Compose installed
+**On the airgapped machine (Docker stack required by NQRust Analytics):**
+- **Docker** (engine + CLI)
+- **Docker Compose v2** (`docker compose` — Compose v2 plugin)
+- **Docker Buildx** (BuildKit)
+- **Access to Docker daemon:** user in `docker` group or use `sudo`
 - ~10 GB free disk space (for extraction and Docker images)
 - Linux OS (tested on Ubuntu 20.04+, Debian 11+)
+
+If Docker is not installed, use the [Docker Airgapped Installer](#docker-airgapped-installer-optional) above; it installs Docker CE, Compose v2, and Buildx.
 
 ### Installation Steps
 

@@ -13,6 +13,7 @@ async fn main() -> color_eyre::Result<()> {
     // Check if running as airgapped binary and setup if needed
     if airgapped::is_airgapped_binary()? {
         airgapped::setup().await?;
+        println!("Installer running in offline mode (images from embedded payload only, no pull from internet).");
     }
     
     let terminal = ratatui::init();

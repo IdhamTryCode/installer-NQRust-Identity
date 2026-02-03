@@ -9,15 +9,17 @@ use color_eyre::Result;
 /// Marker string that separates binary code from embedded payload
 pub const PAYLOAD_MARKER: &[u8] = b"__NQRUST_PAYLOAD__";
 
-/// Check if the current binary has an embedded payload
+/// Check if the current binary has an embedded payload (airgapped installer).
+/// Also respects NQRUST_AIRGAPPED=1 to force offline mode if detection fails on the VM.
 pub fn is_airgapped_binary() -> Result<bool> {
+    if std::env::var("NQRUST_AIRGAPPED").as_deref() == Ok("1") {
+        return Ok(true);
+    }
     let exe_path = std::env::current_exe()?;
     let file_size = std::fs::metadata(&exe_path)?.len();
-    
     // If binary is larger than expected (~50 MB threshold), likely has payload
     // Normal binary is ~10 MB, with payload it's 2.5+ GB
     if file_size > 50_000_000 {
-        // Verify by checking for marker
         extractor::has_payload_marker(&exe_path)
     } else {
         Ok(false)

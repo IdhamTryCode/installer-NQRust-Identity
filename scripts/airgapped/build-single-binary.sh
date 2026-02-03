@@ -8,6 +8,19 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 BUILD_DIR="${PROJECT_ROOT}/build"
+
+# Ensure cargo is in PATH (e.g. when run from WSL/non-interactive shell)
+if ! command -v cargo &> /dev/null; then
+    if [ -f "${HOME}/.cargo/env" ]; then
+        set +u
+        source "${HOME}/.cargo/env"
+        set -u
+    fi
+fi
+if ! command -v cargo &> /dev/null; then
+    echo "cargo not found. Install Rust: https://rustup.rs" >&2
+    exit 1
+fi
 PAYLOAD_FILE="${BUILD_DIR}/payload.tar.gz"
 PAYLOAD_MARKER="__NQRUST_PAYLOAD__"
 

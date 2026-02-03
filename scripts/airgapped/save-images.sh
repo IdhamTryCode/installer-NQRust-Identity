@@ -46,7 +46,9 @@ mkdir -p "${IMAGES_DIR}"
 
 # Define images to save
 # Format: "image_name:tag|output_filename"
+# busybox is required for docker compose build (bootstrap service Dockerfile: FROM busybox)
 declare -a IMAGES=(
+    "busybox:latest|busybox.tar.gz"
     "ghcr.io/nexusquantum/analytics-engine:latest|analytics-engine.tar.gz"
     "ghcr.io/nexusquantum/analytics-engine-ibis:latest|analytics-engine-ibis.tar.gz"
     "ghcr.io/nexusquantum/analytics-service:latest|analytics-service.tar.gz"

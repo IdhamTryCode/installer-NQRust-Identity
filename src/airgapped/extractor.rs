@@ -11,26 +11,19 @@ use indicatif::{ProgressBar, ProgressStyle};
 
 use super::PAYLOAD_MARKER;
 
-/// Check if a file contains the payload marker
+/// Check if a file contains the payload marker.
+/// Layout is [binary ~10MB][marker][payload.tar.gz], so marker is right after the binary.
 pub fn has_payload_marker(path: &Path) -> Result<bool> {
     let mut file = File::open(path)?;
     let file_size = file.metadata()?.len();
-    
-    // Read last 10 MB to search for marker (marker should be near the middle)
-    let search_size = 10_000_000u64.min(file_size);
-    let search_start = if file_size > search_size {
-        file_size - search_size
-    } else {
-        0
-    };
-    
-    file.seek(SeekFrom::Start(search_start))?;
-    
-    let mut buffer = Vec::new();
-    file.read_to_end(&mut buffer)?;
-    
-    // Search for marker in buffer
-    Ok(buffer.windows(PAYLOAD_MARKER.len())
+    // Marker is right after the Rust binary; search first 25 MB to cover binary + marker
+    let search_size = 25_000_000u64.min(file_size);
+    file.seek(SeekFrom::Start(0))?;
+    let mut buffer = vec![0u8; search_size as usize];
+    let n = file.read(&mut buffer)?;
+    let buffer = &buffer[..n];
+    Ok(buffer
+        .windows(PAYLOAD_MARKER.len())
         .any(|window| window == PAYLOAD_MARKER))
 }
 

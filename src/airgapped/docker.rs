@@ -5,8 +5,10 @@ use color_eyre::{eyre::eyre, Result};
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-/// List of required Docker images
+/// List of required Docker images (must match save-images.sh)
+/// busybox is used by bootstrap service (Dockerfile: FROM busybox) so compose build does not pull
 const REQUIRED_IMAGES: &[(&str, &str)] = &[
+    ("busybox:latest", "busybox.tar.gz"),
     ("ghcr.io/nexusquantum/analytics-engine:latest", "analytics-engine.tar.gz"),
     ("ghcr.io/nexusquantum/analytics-engine-ibis:latest", "analytics-engine-ibis.tar.gz"),
     ("ghcr.io/nexusquantum/analytics-service:latest", "analytics-service.tar.gz"),

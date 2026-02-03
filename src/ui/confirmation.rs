@@ -14,6 +14,8 @@ pub struct ConfirmationView<'a> {
     pub config_exists: bool,
     pub menu_selection: &'a MenuSelection,
     pub menu_options: &'a [MenuSelection],
+    /// True when running as airgapped binary (offline mode)
+    pub airgapped: bool,
 }
 
 pub fn render_confirmation(frame: &mut Frame, view: &ConfirmationView<'_>) {
@@ -51,18 +53,24 @@ pub fn render_confirmation(frame: &mut Frame, view: &ConfirmationView<'_>) {
 
     let all_files_exist = view.env_exists && view.config_exists;
 
-    let mut content_lines = vec![
-        Line::from(""),
-        Line::from(Span::styled(
-            "Configuration Files:",
-            Style::default().fg(if all_files_exist {
-                Color::Green
-            } else {
-                Color::Yellow
-            }),
-        )),
-        Line::from(""),
-    ];
+    let mut content_lines = vec![Line::from("")];
+    if view.airgapped {
+        content_lines.push(Line::from(Span::styled(
+            "🔒 Offline / Airgapped mode — images from embedded payload only (no pull from internet)",
+            Style::default().fg(Color::Cyan),
+        )));
+        content_lines.push(Line::from(""));
+    }
+    content_lines.push(Line::from(""));
+    content_lines.push(Line::from(Span::styled(
+        "Configuration Files:",
+        Style::default().fg(if all_files_exist {
+            Color::Green
+        } else {
+            Color::Yellow
+        }),
+    )));
+    content_lines.push(Line::from(""));
 
     content_lines.push(Line::from(vec![
         Span::raw("  "),
