@@ -83,6 +83,14 @@ pub fn extract_payload() -> Result<std::path::PathBuf> {
     
     println!("  Payload size: {:.2} GB", payload_size as f64 / 1_073_741_824.0);
     
+    // Verify payload integrity with quick checksum
+    println!("  Verifying payload integrity...");
+    let payload_checksum = verify_payload_integrity(&mut exe_file, payload_start, payload_size)?;
+    println!("  ✓ Payload checksum: {}...", &payload_checksum[..16]);
+    
+    // Reset to payload start for extraction
+    exe_file.seek(SeekFrom::Start(payload_start))?;
+    
     // Create temporary directory
     let temp_dir = tempfile::tempdir()?;
     let temp_path = temp_dir.keep(); // Use keep() instead of into_path()
@@ -107,11 +115,46 @@ pub fn extract_payload() -> Result<std::path::PathBuf> {
     
     // Extract tar archive
     let mut archive = Archive::new(decoder);
-    archive.unpack(&temp_path)?;
+    archive.unpack(&temp_path).map_err(|e| {
+        eyre!(
+            "Failed to extract payload: {}\n\n\
+             Troubleshooting:\n\
+             - Payload may be corrupted during transfer\n\
+             - Verify binary checksum: sha256sum -c nqrust-analytics-airgapped.sha256\n\
+             - Check disk space: df -h /tmp\n\
+             - Re-download or re-transfer the binary\n\
+             Original error: {}",
+            e, e
+        )
+    })?;
     
     pb.finish_with_message("Extraction complete");
     
     Ok(temp_path)
+}
+
+/// Verify payload integrity with SHA256 checksum
+fn verify_payload_integrity(file: &mut File, start: u64, size: u64) -> Result<String> {
+    use sha2::{Sha256, Digest};
+    
+    file.seek(SeekFrom::Start(start))?;
+    
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; 8192];
+    let mut remaining = size;
+    
+    while remaining > 0 {
+        let to_read = (buffer.len() as u64).min(remaining) as usize;
+        let n = file.read(&mut buffer[..to_read])?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buffer[..n]);
+        remaining -= n as u64;
+    }
+    
+    let result = hasher.finalize();
+    Ok(format!("{:x}", result))
 }
 
 /// Wrapper to track read progress

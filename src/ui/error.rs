@@ -9,10 +9,11 @@ use ratatui::{
 use crate::ui::{get_orange_accent, get_orange_color};
 
 pub struct ErrorView<'a> {
+    pub error: &'a str,
     pub logs: &'a [String],
 }
 
-pub fn render_error(frame: &mut Frame, error: &str, view: &ErrorView<'_>) {
+pub fn render_error(frame: &mut Frame, view: &ErrorView<'_>) {
     let area = frame.area();
 
     let chunks = Layout::default()
@@ -43,7 +44,7 @@ pub fn render_error(frame: &mut Frame, error: &str, view: &ErrorView<'_>) {
             Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
-        Line::from(Span::styled(error, Style::default().fg(Color::White))),
+        Line::from(Span::styled(view.error, Style::default().fg(Color::White))),
         Line::from(""),
     ];
 

@@ -1599,6 +1599,7 @@ impl App {
                     completed_services: self.completed_services,
                     total_services: self.total_services,
                     logs: &self.logs,
+                    airgapped: self.airgapped,
                 };
                 ui::render_installing(frame, &view);
             }
@@ -1606,9 +1607,12 @@ impl App {
                 let view = SuccessView { logs: &self.logs };
                 ui::render_success(frame, &view);
             }
-            AppState::Error(err) => {
-                let view = ErrorView { logs: &self.logs };
-                ui::render_error(frame, err, &view);
+            AppState::Error(error) => {
+                let view = ErrorView {
+                    error,
+                    logs: &self.logs,
+                };
+                ui::render_error(frame, &view);
             }
         }
     }

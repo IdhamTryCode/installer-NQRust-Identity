@@ -28,6 +28,7 @@ flate2 = "1.0"      # For gzip decompression
 tar = "0.4"         # For tar extraction
 tempfile = "3.8"    # For temp directory management
 indicatif = "0.17"  # For progress bars
+sha2 = "0.10"       # For payload checksum verification
 
 [package.metadata.deb]
 name = "nqrust-analytics"

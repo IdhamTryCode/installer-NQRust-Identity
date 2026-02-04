@@ -2,6 +2,9 @@
 // Docker operations for loading images in airgapped mode
 
 use color_eyre::{eyre::eyre, Result};
+use flate2::read::GzDecoder;
+use std::fs::File;
+use std::io;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
@@ -25,7 +28,13 @@ pub fn check_docker_available() -> Result<()> {
     
     match output {
         Ok(_) => Ok(()),
-        Err(_) => Err(eyre!("Docker is not installed or not in PATH")),
+        Err(_) => Err(eyre!(
+            "Docker is not installed or not in PATH\n\n\
+             Troubleshooting:\n\
+             - Install Docker: https://docs.docker.com/get-docker/\n\
+             - Ensure 'docker' command is in your PATH\n\
+             - Try running: which docker"
+        )),
     }
 }
 
@@ -39,7 +48,14 @@ pub fn check_docker_running() -> Result<()> {
     
     match output {
         Ok(status) if status.success() => Ok(()),
-        _ => Err(eyre!("Docker daemon is not running")),
+        _ => Err(eyre!(
+            "Docker daemon is not running\n\n\
+             Troubleshooting:\n\
+             - Start Docker daemon: sudo systemctl start docker\n\
+             - Enable Docker on boot: sudo systemctl enable docker\n\
+             - Check Docker status: sudo systemctl status docker\n\
+             - Ensure your user is in docker group: sudo usermod -aG docker $USER"
+        )),
     }
 }
 
@@ -69,25 +85,87 @@ pub fn check_all_images_exist() -> Result<bool> {
     Ok(true)
 }
 
-/// Load a single Docker image from tar.gz file
+/// Load a single Docker image from tar.gz file using Rust native decompression
 fn load_image(tar_gz_path: &Path, image_name: &str) -> Result<()> {
     println!("    Loading {}...", image_name);
     
-    // Use gunzip | docker load pipeline
-    let gunzip = Command::new("gunzip")
-        .arg("-c")
-        .arg(tar_gz_path)
-        .stdout(Stdio::piped())
-        .spawn()?;
+    // Open the compressed tar.gz file
+    let file = File::open(tar_gz_path).map_err(|e| {
+        eyre!(
+            "Failed to open image file '{}': {}\n\n\
+             Troubleshooting:\n\
+             - Verify file exists: ls -lh {}\n\
+             - Check file permissions: chmod 644 {}\n\
+             - Ensure sufficient disk space: df -h",
+            tar_gz_path.display(),
+            e,
+            tar_gz_path.display(),
+            tar_gz_path.display()
+        )
+    })?;
     
-    let docker_load = Command::new("docker")
+    // Decompress with Rust native GzDecoder
+    let mut decoder = GzDecoder::new(file);
+    
+    // Spawn docker load process
+    let mut docker_load = Command::new("docker")
         .arg("load")
-        .stdin(gunzip.stdout.ok_or_else(|| eyre!("Failed to pipe gunzip output"))?)
-        .output()?;
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| {
+            eyre!(
+                "Failed to spawn 'docker load' command: {}\n\n\
+                 Troubleshooting:\n\
+                 - Ensure Docker is installed: docker --version\n\
+                 - Check Docker daemon is running: sudo systemctl status docker\n\
+                 - Verify Docker permissions: docker ps",
+                e
+            )
+        })?;
     
-    if !docker_load.status.success() {
-        let error = String::from_utf8_lossy(&docker_load.stderr);
-        return Err(eyre!("Failed to load image: {}", error));
+    // Get stdin handle
+    let mut stdin = docker_load.stdin.take().ok_or_else(|| {
+        eyre!("Failed to open stdin for docker load")
+    })?;
+    
+    // Stream decompressed data to docker load
+    io::copy(&mut decoder, &mut stdin).map_err(|e| {
+        eyre!(
+            "Failed to stream image data to Docker: {}\n\n\
+             Troubleshooting:\n\
+             - Check disk space: df -h\n\
+             - Verify image file is not corrupted: gzip -t {}\n\
+             - Check Docker daemon logs: sudo journalctl -u docker -n 50",
+            e,
+            tar_gz_path.display()
+        )
+    })?;
+    
+    // Close stdin to signal end of input
+    drop(stdin);
+    
+    // Wait for docker load to complete
+    let output = docker_load.wait_with_output().map_err(|e| {
+        eyre!("Failed to wait for docker load: {}", e)
+    })?;
+    
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(eyre!(
+            "Failed to load image '{}': {}\n\n\
+             Troubleshooting:\n\
+             - Ensure Docker daemon is running: sudo systemctl start docker\n\
+             - Check disk space: df -h /var/lib/docker\n\
+             - Verify image file integrity: sha256sum {}\n\
+             - Check Docker logs: sudo journalctl -u docker -n 50\n\
+             - Try manual load: gunzip -c {} | docker load",
+            image_name,
+            stderr.trim(),
+            tar_gz_path.display(),
+            tar_gz_path.display()
+        ));
     }
     
     Ok(())
