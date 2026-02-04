@@ -85,6 +85,8 @@ jobs:
             - name: Build airgapped binary
               run: |
                   chmod +x scripts/airgapped/build-single-binary.sh
+                  chmod +x scripts/airgapped/save-images.sh
+                  chmod +x scripts/airgapped/build-payload.sh
                   ./scripts/airgapped/build-single-binary.sh
 
             - name: Validate binary
