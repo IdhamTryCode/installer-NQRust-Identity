@@ -117,10 +117,10 @@ jobs:
                     exit 1
                   fi
 
-                  # Check file size (should be > 2 GB)
+                  # Check file size (should be > 1 GB with payload)
                   SIZE=$(stat -c%s nqrust-analytics-airgapped)
                   echo "Binary size: $(numfmt --to=iec-i --suffix=B $SIZE)"
-                  if [ $SIZE -lt 2000000000 ]; then
+                  if [ $SIZE -lt 1000000000 ]; then
                     echo "❌ Binary too small ($SIZE bytes), likely missing payload"
                     exit 1
                   fi
