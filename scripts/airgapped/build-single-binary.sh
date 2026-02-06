@@ -9,6 +9,20 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 BUILD_DIR="${PROJECT_ROOT}/build"
 
+# Parse arguments
+FORCE_REFRESH=false
+for arg in "$@"; do
+    case $arg in
+        --force-refresh)
+            FORCE_REFRESH=true
+            shift
+            ;;
+        *)
+            # Unknown argument
+            ;;
+    esac
+done
+
 # Ensure cargo is in PATH (e.g. when run from WSL/non-interactive shell)
 if ! command -v cargo &> /dev/null; then
     if [ -f "${HOME}/.cargo/env" ]; then
@@ -70,18 +84,29 @@ echo ""
 
 # Step 2: Save Docker images
 log_step "Step 2/5: Saving Docker images..."
-if [ ! -d "${BUILD_DIR}/images" ] || [ ! -f "${BUILD_DIR}/images/manifest.json" ]; then
+if [ "${FORCE_REFRESH}" = true ]; then
+    log_info "Force refresh enabled, rebuilding images..."
+    rm -rf "${BUILD_DIR}/images"
+    log_info "Running save-images.sh..."
+    "${SCRIPT_DIR}/save-images.sh"
+elif [ ! -d "${BUILD_DIR}/images" ] || [ ! -f "${BUILD_DIR}/images/manifest.json" ]; then
     log_info "Running save-images.sh..."
     "${SCRIPT_DIR}/save-images.sh"
 else
     log_info "Images already saved, skipping..."
     log_warn "To rebuild images, delete ${BUILD_DIR}/images and run again"
+    log_warn "Or use --force-refresh flag to force rebuild"
 fi
 echo ""
 
 # Step 3: Build payload
 log_step "Step 3/5: Building payload..."
-if [ ! -f "${PAYLOAD_FILE}" ]; then
+if [ "${FORCE_REFRESH}" = true ]; then
+    log_info "Force refresh enabled, rebuilding payload..."
+    rm -f "${PAYLOAD_FILE}"
+    log_info "Running build-payload.sh..."
+    "${SCRIPT_DIR}/build-payload.sh"
+elif [ ! -f "${PAYLOAD_FILE}" ]; then
     log_info "Running build-payload.sh..."
     "${SCRIPT_DIR}/build-payload.sh"
 else

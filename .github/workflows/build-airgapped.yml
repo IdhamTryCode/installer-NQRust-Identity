@@ -91,21 +91,12 @@ jobs:
                   fi
                   echo "✅ Authentication successful"
 
-            - name: Cache Docker images
-              id: cache-images
-              uses: actions/cache@v4
-              with:
-                  path: build/images
-                  key: docker-images-${{ hashFiles('docker-compose.yaml', 'scripts/airgapped/save-images.sh') }}
-                  restore-keys: |
-                      docker-images-
-
             - name: Build airgapped binary
               run: |
                   chmod +x scripts/airgapped/build-single-binary.sh
                   chmod +x scripts/airgapped/save-images.sh
                   chmod +x scripts/airgapped/build-payload.sh
-                  ./scripts/airgapped/build-single-binary.sh
+                  ./scripts/airgapped/build-single-binary.sh --force-refresh
 
             - name: Validate binary
               run: |
