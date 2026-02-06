@@ -64,7 +64,7 @@ fn find_marker_position(file: &mut File) -> Result<u64> {
     }
 }
 
-/// Extract the embedded payload to a temporary directory
+/// Extract the embedded payload to a temporary directory  
 pub fn extract_payload() -> Result<std::path::PathBuf> {
     let exe_path = std::env::current_exe()?;
     let mut exe_file = File::open(&exe_path)?;
