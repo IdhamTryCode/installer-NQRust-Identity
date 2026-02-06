@@ -8,6 +8,7 @@ pub const COMPOSE_TEMPLATE: &str = include_str!("../docker-compose.yaml");
 pub const BOOTSTRAP_DOCKERFILE: &str = include_str!("../bootstrap/Dockerfile");
 pub const BOOTSTRAP_INIT_SH: &str = include_str!("../bootstrap/init.sh");
 pub const NORTHWIND_SQL: &str = include_str!("../northwind.sql");
+pub const INIT_ANALYTICS_DB_SQL: &str = include_str!("../00-init-analytics-db.sql");
 
 pub fn find_file(filename: &str) -> bool {
     let root = project_root();
@@ -93,6 +94,12 @@ pub fn ensure_compose_bundle(root: &Path) -> Result<()> {
             let perms = fs::Permissions::from_mode(0o755);
             let _ = fs::set_permissions(&bootstrap_init, perms);
         }
+    }
+
+    // Analytics application database init script (runs before northwind.sql)
+    let init_analytics_db_path = root.join("00-init-analytics-db.sql");
+    if !init_analytics_db_path.exists() {
+        fs::write(&init_analytics_db_path, INIT_ANALYTICS_DB_SQL)?;
     }
 
     // Northwind demo data

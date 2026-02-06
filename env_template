@@ -40,8 +40,23 @@ AI_SERVICE_FORWARD_PORT={{AI_SERVICE_FORWARD_PORT}}
 # Analytics UI
 EXPERIMENTAL_ENGINE_RUST_VERSION=false
 DB_TYPE=pg
-PG_URL=postgres://demo:demo123@northwind-db:5432/northwind
+PG_URL=postgres://analytics:analytics123@northwind-db:5432/analytics
 NEXT_PUBLIC_TELEMETRY_ENABLED=false
+
+# Authentication (REQUIRED for user management)
+# Generate a secure random string: openssl rand -base64 32
+JWT_SECRET={{JWT_SECRET}}
+JWT_ACCESS_EXPIRES_IN=15m
+JWT_REFRESH_EXPIRES_IN_DAYS=30
+
+# OAuth Configuration (Optional)
+# Set to true and provide credentials to enable OAuth login
+GOOGLE_OAUTH_ENABLED=false
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GITHUB_OAUTH_ENABLED=false
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
 
 # Analytics Engine
 LOCAL_STORAGE=.

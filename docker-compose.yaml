@@ -79,7 +79,7 @@ services:
     networks:
       - analytics
 
-  # Northwind PostgreSQL Demo Database
+  # Northwind PostgreSQL Demo Database + Analytics Application Database
   northwind-db:
     image: postgres:15
     restart: unless-stopped
@@ -88,6 +88,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
+      - ./00-init-analytics-db.sql:/docker-entrypoint-initdb.d/00-init-analytics-db.sql:ro
       - ./northwind.sql:/docker-entrypoint-initdb.d/northwind.sql:ro
       - northwind_data:/var/lib/postgresql/data
     networks:
@@ -106,6 +107,7 @@ services:
     networks:
       - analytics
     depends_on:
+      - northwind-db
       - analytics-service
       - analytics-engine
       - ibis-server
