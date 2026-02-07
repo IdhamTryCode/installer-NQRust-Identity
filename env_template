@@ -40,6 +40,8 @@ AI_SERVICE_FORWARD_PORT={{AI_SERVICE_FORWARD_PORT}}
 # Analytics UI
 EXPERIMENTAL_ENGINE_RUST_VERSION=false
 DB_TYPE=pg
+# Password for DB user "analytics"; must match the password in PG_URL below
+ANALYTICS_DB_PASSWORD=analytics123
 PG_URL=postgres://analytics:analytics123@northwind-db:5432/analytics
 NEXT_PUBLIC_TELEMETRY_ENABLED=false
 

@@ -112,15 +112,15 @@ pub fn ensure_compose_bundle(root: &Path) -> Result<()> {
     // Idempotent analytics user/DB script (runs after northwind-db is up; fixes "role analytics does not exist" on existing volumes)
     let scripts_dir = root.join("scripts");
     fs::create_dir_all(&scripts_dir)?;
+    // Always write (with LF line endings) so existing installs get fix for CRLF "set: Illegal option -" in container
     let ensure_analytics_db = scripts_dir.join("ensure-analytics-db.sh");
-    if !ensure_analytics_db.exists() {
-        fs::write(&ensure_analytics_db, ENSURE_ANALYTICS_DB_SH)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let perms = fs::Permissions::from_mode(0o755);
-            let _ = fs::set_permissions(&ensure_analytics_db, perms);
-        }
+    let script_content = ENSURE_ANALYTICS_DB_SH.replace("\r\n", "\n").replace('\r', "\n");
+    fs::write(&ensure_analytics_db, script_content)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = fs::Permissions::from_mode(0o755);
+        let _ = fs::set_permissions(&ensure_analytics_db, perms);
     }
 
     Ok(())
