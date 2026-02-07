@@ -362,7 +362,7 @@ async fn fetch_package_versions(
     Ok(None)
 }
 
-async fn inspect_local_image_created_at(image: &str, tag: &str) -> Result<Option<DateTime<Utc>>> { 
+async fn inspect_local_image_created_at(image: &str, tag: &str) -> Result<Option<DateTime<Utc>>> {
     let reference = format!("{}:{}", image, tag);
     let output = Command::new("docker")
         .args(["image", "inspect", &reference, "--format", "{{.Created}}"])

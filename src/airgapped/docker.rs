@@ -1,7 +1,7 @@
 // airgapped/docker.rs
 // Docker operations for loading images in airgapped mode
 
-use color_eyre::{eyre::eyre, Result};
+use color_eyre::{Result, eyre::eyre};
 use flate2::read::GzDecoder;
 use std::fs::File;
 use std::io;
@@ -12,20 +12,30 @@ use std::process::{Command, Stdio};
 /// busybox is used by bootstrap service (Dockerfile: FROM busybox) so compose build does not pull
 const REQUIRED_IMAGES: &[(&str, &str)] = &[
     ("busybox:latest", "busybox.tar.gz"),
-    ("ghcr.io/nexusquantum/analytics-engine:latest", "analytics-engine.tar.gz"),
-    ("ghcr.io/nexusquantum/analytics-engine-ibis:latest", "analytics-engine-ibis.tar.gz"),
-    ("ghcr.io/nexusquantum/analytics-service:latest", "analytics-service.tar.gz"),
-    ("ghcr.io/nexusquantum/analytics-ui:latest", "analytics-ui.tar.gz"),
+    (
+        "ghcr.io/nexusquantum/analytics-engine:latest",
+        "analytics-engine.tar.gz",
+    ),
+    (
+        "ghcr.io/nexusquantum/analytics-engine-ibis:latest",
+        "analytics-engine-ibis.tar.gz",
+    ),
+    (
+        "ghcr.io/nexusquantum/analytics-service:latest",
+        "analytics-service.tar.gz",
+    ),
+    (
+        "ghcr.io/nexusquantum/analytics-ui:latest",
+        "analytics-ui.tar.gz",
+    ),
     ("qdrant/qdrant:v1.11.0", "qdrant.tar.gz"),
     ("postgres:15", "postgres.tar.gz"),
 ];
 
 /// Check if Docker is available
 pub fn check_docker_available() -> Result<()> {
-    let output = Command::new("docker")
-        .arg("--version")
-        .output();
-    
+    let output = Command::new("docker").arg("--version").output();
+
     match output {
         Ok(_) => Ok(()),
         Err(_) => Err(eyre!(
@@ -45,7 +55,7 @@ pub fn check_docker_running() -> Result<()> {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status();
-    
+
     match output {
         Ok(status) if status.success() => Ok(()),
         _ => Err(eyre!(
@@ -64,7 +74,7 @@ fn image_exists(image_name: &str) -> Result<bool> {
     let output = Command::new("docker")
         .args(&["images", "-q", image_name])
         .output()?;
-    
+
     Ok(!output.stdout.is_empty())
 }
 
@@ -74,21 +84,21 @@ pub fn check_all_images_exist() -> Result<bool> {
     if check_docker_available().is_err() || check_docker_running().is_err() {
         return Ok(false);
     }
-    
+
     // Check each required image
     for (image_name, _) in REQUIRED_IMAGES {
         if !image_exists(image_name)? {
             return Ok(false);
         }
     }
-    
+
     Ok(true)
 }
 
 /// Load a single Docker image from tar.gz file using Rust native decompression
 fn load_image(tar_gz_path: &Path, image_name: &str) -> Result<()> {
     println!("    Loading {}...", image_name);
-    
+
     // Open the compressed tar.gz file
     let file = File::open(tar_gz_path).map_err(|e| {
         eyre!(
@@ -103,10 +113,10 @@ fn load_image(tar_gz_path: &Path, image_name: &str) -> Result<()> {
             tar_gz_path.display()
         )
     })?;
-    
+
     // Decompress with Rust native GzDecoder
     let mut decoder = GzDecoder::new(file);
-    
+
     // Spawn docker load process
     let mut docker_load = Command::new("docker")
         .arg("load")
@@ -124,12 +134,13 @@ fn load_image(tar_gz_path: &Path, image_name: &str) -> Result<()> {
                 e
             )
         })?;
-    
+
     // Get stdin handle
-    let mut stdin = docker_load.stdin.take().ok_or_else(|| {
-        eyre!("Failed to open stdin for docker load")
-    })?;
-    
+    let mut stdin = docker_load
+        .stdin
+        .take()
+        .ok_or_else(|| eyre!("Failed to open stdin for docker load"))?;
+
     // Stream decompressed data to docker load
     io::copy(&mut decoder, &mut stdin).map_err(|e| {
         eyre!(
@@ -142,15 +153,15 @@ fn load_image(tar_gz_path: &Path, image_name: &str) -> Result<()> {
             tar_gz_path.display()
         )
     })?;
-    
+
     // Close stdin to signal end of input
     drop(stdin);
-    
+
     // Wait for docker load to complete
-    let output = docker_load.wait_with_output().map_err(|e| {
-        eyre!("Failed to wait for docker load: {}", e)
-    })?;
-    
+    let output = docker_load
+        .wait_with_output()
+        .map_err(|e| eyre!("Failed to wait for docker load: {}", e))?;
+
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(eyre!(
@@ -167,7 +178,7 @@ fn load_image(tar_gz_path: &Path, image_name: &str) -> Result<()> {
             tar_gz_path.display()
         ));
     }
-    
+
     Ok(())
 }
 
@@ -176,23 +187,23 @@ pub fn load_all_images(payload_dir: &Path) -> Result<()> {
     // Pre-flight checks
     check_docker_available()?;
     check_docker_running()?;
-    
+
     let total = REQUIRED_IMAGES.len();
     println!("  Loading {} Docker images...", total);
-    
+
     for (idx, (image_name, filename)) in REQUIRED_IMAGES.iter().enumerate() {
         let tar_gz_path = payload_dir.join(filename);
-        
+
         if !tar_gz_path.exists() {
             return Err(eyre!("Image file not found: {}", filename));
         }
-        
+
         println!("  [{}/{}] {}", idx + 1, total, image_name);
         load_image(&tar_gz_path, image_name)?;
     }
-    
+
     println!("  ✓ All images loaded successfully");
-    
+
     Ok(())
 }
 
@@ -200,13 +211,13 @@ pub fn load_all_images(payload_dir: &Path) -> Result<()> {
 #[allow(dead_code)]
 pub fn verify_images_loaded() -> Result<()> {
     println!("  Verifying images...");
-    
+
     for (image_name, _) in REQUIRED_IMAGES {
         if !image_exists(image_name)? {
             return Err(eyre!("Image not found after loading: {}", image_name));
         }
     }
-    
+
     println!("  ✓ All images verified");
     Ok(())
 }

@@ -38,7 +38,7 @@ pub fn render_installing(frame: &mut Frame, view: &InstallingView<'_>) {
     } else {
         "🔄 Installing Analytics... Please wait"
     };
-    
+
     let title = Paragraph::new(title_text)
         .style(
             Style::default()
