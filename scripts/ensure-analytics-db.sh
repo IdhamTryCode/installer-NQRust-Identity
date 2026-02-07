@@ -19,8 +19,9 @@ BEGIN
 END $$;
 EOSQL
 
-# Create analytics database if not exists (must run outside transaction)
+# Create analytics database if not exists (CREATE DATABASE cannot run inside a transaction block)
 exists=$(psql -d postgres -t -A -c "SELECT 1 FROM pg_database WHERE datname = 'analytics'")
 if [ -z "$exists" ]; then
-  psql -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE analytics OWNER analytics; GRANT ALL PRIVILEGES ON DATABASE analytics TO analytics;"
+  psql -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE analytics OWNER analytics;"
+  psql -d postgres -v ON_ERROR_STOP=1 -c "GRANT ALL PRIVILEGES ON DATABASE analytics TO analytics;"
 fi
