@@ -9,6 +9,7 @@ pub const BOOTSTRAP_DOCKERFILE: &str = include_str!("../bootstrap/Dockerfile");
 pub const BOOTSTRAP_INIT_SH: &str = include_str!("../bootstrap/init.sh");
 pub const NORTHWIND_SQL: &str = include_str!("../northwind.sql");
 pub const INIT_ANALYTICS_DB_SQL: &str = include_str!("../00-init-analytics-db.sql");
+pub const ENSURE_ANALYTICS_DB_SH: &str = include_str!("../scripts/ensure-analytics-db.sh");
 
 pub fn find_file(filename: &str) -> bool {
     let root = project_root();
@@ -106,6 +107,20 @@ pub fn ensure_compose_bundle(root: &Path) -> Result<()> {
     let northwind_path = root.join("northwind.sql");
     if !northwind_path.exists() {
         fs::write(&northwind_path, NORTHWIND_SQL)?;
+    }
+
+    // Idempotent analytics user/DB script (runs after northwind-db is up; fixes "role analytics does not exist" on existing volumes)
+    let scripts_dir = root.join("scripts");
+    fs::create_dir_all(&scripts_dir)?;
+    let ensure_analytics_db = scripts_dir.join("ensure-analytics-db.sh");
+    if !ensure_analytics_db.exists() {
+        fs::write(&ensure_analytics_db, ENSURE_ANALYTICS_DB_SH)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let perms = fs::Permissions::from_mode(0o755);
+            let _ = fs::set_permissions(&ensure_analytics_db, perms);
+        }
     }
 
     Ok(())

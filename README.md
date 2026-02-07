@@ -277,6 +277,33 @@ installer-analytics/
 ANALYTICS_UI_PORT=3001  # Change from 3000
 ```
 
+### "password authentication failed for user \"analytics\"" / "Role \"analytics\" does not exist"
+
+**Problem**: Analytics UI cannot connect to PostgreSQL; Postgres logs show that the role `analytics` does not exist.
+
+**Cause**: PostgreSQL only runs scripts in `/docker-entrypoint-initdb.d/` when the data volume is **empty** (first run). If you had already run the stack before the analytics DB/user was added, the existing `northwind_data` volume was reused and the init script that creates the `analytics` user never ran.
+
+**Solution** (pick one):
+
+1. **Recommended (with current installer)**  
+   Re-run the installer or `docker compose up -d` after pulling the latest compose bundle. The stack now includes an **analytics-db-init** service that runs idempotently after Postgres is up and creates the `analytics` user and database if missing. Ensure `scripts/ensure-analytics-db.sh` exists in your project directory (the installer writes it if missing).
+
+2. **One-time manual fix**  
+   Create the user and database once, then restart the UI:
+   ```bash
+   docker exec -i analytics-northwind-db-1 psql -U demo -d postgres -c "CREATE USER analytics WITH PASSWORD 'analytics123'; CREATE DATABASE analytics OWNER analytics; GRANT ALL PRIVILEGES ON DATABASE analytics TO analytics;"
+   docker compose restart analytics-ui
+   ```
+   (Container name may differ; use `docker ps` to find the northwind-db container.)
+
+3. **Fresh start (data loss)**  
+   Remove the Postgres volume so init runs again:
+   ```bash
+   docker compose down
+   docker volume rm analytics_northwind_data
+   docker compose up -d
+   ```
+
 ### Build errors
 
 **Problem**: Rust compilation fails

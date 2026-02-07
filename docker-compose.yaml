@@ -93,6 +93,31 @@ services:
       - northwind_data:/var/lib/postgresql/data
     networks:
       - analytics
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-demo} -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Ensures analytics user and DB exist (idempotent). Needed when volume already existed before 00-init-analytics-db.sql was added.
+  analytics-db-init:
+    image: postgres:15
+    env_file:
+      - .env
+    environment:
+      PGHOST: northwind-db
+      PGPORT: 5432
+      PGUSER: ${POSTGRES_USER:-demo}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-demo123}
+    volumes:
+      - ./scripts/ensure-analytics-db.sh:/ensure-analytics-db.sh:ro
+    entrypoint: ["/bin/sh", "/ensure-analytics-db.sh"]
+    networks:
+      - analytics
+    depends_on:
+      northwind-db:
+        condition: service_healthy
+    restart: "no"
 
   analytics-ui:
     image: ghcr.io/nexusquantum/analytics-ui:latest
@@ -107,7 +132,7 @@ services:
     networks:
       - analytics
     depends_on:
-      - northwind-db
+      - analytics-db-init
       - analytics-service
       - analytics-engine
       - ibis-server
