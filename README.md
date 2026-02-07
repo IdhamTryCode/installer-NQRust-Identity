@@ -20,11 +20,15 @@ This installer provides a guided setup experience for the NexusQuantum Analytics
 
 ## Prerequisites
 
-Before running the installer, ensure you have:
+Before running the installer, ensure you have the **Docker stack** (required by `nqrust-analytics install`):
 
-1. **Docker & Docker Compose** - [Install Docker](https://docs.docker.com/get-docker/)
-2. **Rust** (for building from source) - [Install Rust](https://rustup.rs/)
-3. **GitHub Personal Access Token** (PAT) with `read:packages` scope
+1. **Docker** (engine + CLI) — [Install Docker](https://docs.docker.com/get-docker/)
+2. **Docker Compose v2** — `docker compose` (Compose v2 plugin; not legacy `docker-compose`)
+3. **Docker Buildx** (BuildKit) — `docker buildx` (usually included with Docker CE)
+4. **Access to Docker daemon** — run with `sudo` or add your user to the `docker` group
+
+5. **Rust** (for building from source) — [Install Rust](https://rustup.rs/)
+6. **GitHub Personal Access Token** (PAT) with `read:packages` scope
    - Required to pull container images from GitHub Container Registry (ghcr.io)
    - [Create a PAT](https://github.com/settings/tokens/new) with the `read:packages` permission
 
@@ -74,6 +78,44 @@ docker login ghcr.io
 ```bash
 cargo run
 ```
+
+### Option D: Airgapped/Offline Installation
+
+For environments **without internet access** (airgapped, isolated networks, or offline VMs):
+
+**On a machine with internet (build machine):**
+```bash
+# 1. Clone and checkout airgapped branch
+git clone https://github.com/NexusQuantum/installer-NQRust-Analytics.git
+cd installer-NQRust-Analytics
+git checkout airgapped-single-binary
+
+# 2. Login to GitHub Container Registry
+docker login ghcr.io
+
+# 3. Build airgapped binary (~3-4 GB, includes all Docker images)
+./scripts/airgapped/build-single-binary.sh
+```
+
+**Transfer to airgapped machine** (via USB/SCP/physical media):
+```bash
+# Copy the single binary file
+cp nqrust-analytics-airgapped /path/to/transfer/
+```
+
+**On airgapped machine (no internet needed):**
+```bash
+# 0. (Optional) If Docker is not installed: use Docker airgapped installer first
+#    See docs/AIRGAPPED-INSTALLATION.md — "Docker Airgapped Installer"
+
+# 1. Make executable
+chmod +x nqrust-analytics-airgapped
+
+# 2. Run installer (auto-extracts and loads Docker images)
+./nqrust-analytics-airgapped install
+```
+
+> 📖 **See [Airgapped Installation Guide](docs/AIRGAPPED-INSTALLATION.md) for complete instructions, Docker offline installer, and FAQ.**
 
 ## Usage Guide
 

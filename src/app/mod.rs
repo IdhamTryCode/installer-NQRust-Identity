@@ -60,6 +60,8 @@ pub struct App {
     registry_form: RegistryForm,
     registry_status: Option<String>,
     ghcr_token: Option<String>,
+    /// True when running as nqrust-analytics-airgapped (offline mode, no image pull)
+    pub(crate) airgapped: bool,
 }
 
 impl App {
@@ -79,7 +81,12 @@ impl App {
             registry_form.token = token;
         }
 
-        let initial_state = if initial_token.is_some() {
+        let airgapped = crate::airgapped::is_airgapped_binary().unwrap_or(false);
+
+        // In airgapped mode, skip Registry Setup — images are already loaded, no GHCR pull needed
+        let initial_state = if airgapped {
+            AppState::Confirmation
+        } else if initial_token.is_some() {
             AppState::Confirmation
         } else {
             AppState::RegistrySetup
@@ -104,6 +111,7 @@ impl App {
             registry_form,
             registry_status: None,
             ghcr_token: initial_token,
+            airgapped,
         };
 
         app.ensure_menu_selection();
@@ -350,11 +358,13 @@ impl App {
             options.push(MenuSelection::GenerateEnv);
         }
 
-        if self.ghcr_token.is_some() {
-            options.push(MenuSelection::UpdateToken);
+        // Token and Check for updates require network; skip in airgapped/offline mode
+        if !self.airgapped {
+            if self.ghcr_token.is_some() {
+                options.push(MenuSelection::UpdateToken);
+            }
+            options.push(MenuSelection::CheckUpdates);
         }
-
-        options.push(MenuSelection::CheckUpdates);
 
         if self.env_exists && self.config_exists {
             options.push(MenuSelection::Proceed);
@@ -1543,6 +1553,7 @@ impl App {
                     config_exists: self.config_exists,
                     menu_selection: &self.menu_selection,
                     menu_options: &menu_options,
+                    airgapped: self.airgapped,
                 };
                 ui::render_confirmation(frame, &view);
             }
@@ -1588,6 +1599,7 @@ impl App {
                     completed_services: self.completed_services,
                     total_services: self.total_services,
                     logs: &self.logs,
+                    airgapped: self.airgapped,
                 };
                 ui::render_installing(frame, &view);
             }
@@ -1595,9 +1607,12 @@ impl App {
                 let view = SuccessView { logs: &self.logs };
                 ui::render_success(frame, &view);
             }
-            AppState::Error(err) => {
-                let view = ErrorView { logs: &self.logs };
-                ui::render_error(frame, err, &view);
+            AppState::Error(error) => {
+                let view = ErrorView {
+                    error,
+                    logs: &self.logs,
+                };
+                ui::render_error(frame, &view);
             }
         }
     }

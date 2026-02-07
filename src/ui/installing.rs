@@ -14,6 +14,8 @@ pub struct InstallingView<'a> {
     pub completed_services: usize,
     pub total_services: usize,
     pub logs: &'a [String],
+    /// True when running in airgapped mode (using pre-loaded images)
+    pub airgapped: bool,
 }
 
 pub fn render_installing(frame: &mut Frame, view: &InstallingView<'_>) {
@@ -31,7 +33,13 @@ pub fn render_installing(frame: &mut Frame, view: &InstallingView<'_>) {
         ])
         .split(area);
 
-    let title = Paragraph::new("🔄 Installing Analytics... Please wait")
+    let title_text = if view.airgapped {
+        "🔄 Installing Analytics (Offline Mode)... Please wait"
+    } else {
+        "🔄 Installing Analytics... Please wait"
+    };
+    
+    let title = Paragraph::new(title_text)
         .style(
             Style::default()
                 .fg(get_orange_color())
