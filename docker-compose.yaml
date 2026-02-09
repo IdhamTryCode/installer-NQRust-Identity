@@ -87,17 +87,18 @@ services:
       - .env
     ports:
       - "5432:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "psql -U ${POSTGRES_USER:-demo} -d ${POSTGRES_DB:-northwind} -c \"SELECT 1 FROM pg_constraint WHERE conname = 'fk_orders_customers'\"" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - analytics
     volumes:
       - ./00-init-analytics-db.sql:/docker-entrypoint-initdb.d/00-init-analytics-db.sql:ro
       - ./northwind.sql:/docker-entrypoint-initdb.d/northwind.sql:ro
+      - ./scripts/ensure-analytics-db.sh:/docker-entrypoint-initdb.d/99-ensure-analytics-db.sh:ro
       - northwind_data:/var/lib/postgresql/data
-    networks:
-      - analytics
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-demo} -d postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
 
   # Ensures analytics user and DB exist (idempotent). Needed when volume already existed before 00-init-analytics-db.sql was added.
   analytics-db-init:
@@ -111,7 +112,7 @@ services:
       PGPASSWORD: ${POSTGRES_PASSWORD:-demo123}
     volumes:
       - ./scripts/ensure-analytics-db.sh:/ensure-analytics-db.sh:ro
-    entrypoint: ["/bin/sh", "/ensure-analytics-db.sh"]
+    entrypoint: [ "/bin/sh", "/ensure-analytics-db.sh" ]
     networks:
       - analytics
     depends_on:

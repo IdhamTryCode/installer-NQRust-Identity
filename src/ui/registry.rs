@@ -6,7 +6,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
 };
 
-use crate::app::registry_form::RegistryForm;
+use crate::app::registry_form::{FocusState, RegistryForm};
 use crate::ui::{get_orange_accent, get_orange_color};
 
 pub struct RegistrySetupView<'a> {
@@ -21,8 +21,8 @@ pub fn render_registry_setup(frame: &mut Frame, view: &RegistrySetupView<'_>) {
         .direction(Direction::Vertical)
         .margin(2)
         .constraints([
+            Constraint::Length(3),
             Constraint::Length(5),
-            Constraint::Length(7),
             Constraint::Min(6),
             Constraint::Length(3),
         ])
@@ -42,20 +42,8 @@ pub fn render_registry_setup(frame: &mut Frame, view: &RegistrySetupView<'_>) {
         .centered();
     frame.render_widget(header, chunks[0]);
 
-    let mut field_lines = Vec::new();
-    field_lines.push(Line::from(
-        "Provide a GitHub token with `read:packages` scope to pull GHCR images.",
-    ));
-    field_lines.push(Line::from(
-        "We will detect your username automatically from the token.",
-    ));
-    field_lines.push(Line::from(
-        "Press Enter to edit, Ctrl+S to submit, Esc to skip.",
-    ));
-    field_lines.push(Line::from(""));
-
-    let is_selected = view.form.current_field == 0;
-
+    // Token field
+    let is_field_focused = matches!(&view.form.focus_state, FocusState::Field(_));
     let raw_value = view.form.token.as_str();
 
     let display = if raw_value.is_empty() {
@@ -64,7 +52,7 @@ pub fn render_registry_setup(frame: &mut Frame, view: &RegistrySetupView<'_>) {
         "*".repeat(raw_value.chars().count())
     };
 
-    let style = if is_selected {
+    let field_style = if is_field_focused {
         Style::default()
             .fg(Color::Black)
             .bg(get_orange_color())
@@ -73,43 +61,35 @@ pub fn render_registry_setup(frame: &mut Frame, view: &RegistrySetupView<'_>) {
         Style::default().fg(Color::White)
     };
 
-    field_lines.push(Line::from(vec![
-        Span::styled("  ▶  ", style),
-        Span::styled("Personal access token", style),
-        Span::raw(": "),
-        Span::styled(display, style),
-    ]));
+    let cursor = if is_field_focused { "▶" } else { " " };
 
-    let submit_style = if view.form.current_field == 1 {
-        Style::default()
-            .fg(Color::Black)
-            .bg(Color::Green)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(Color::Green)
-    };
+    let field_line = Line::from(vec![
+        Span::styled(cursor, field_style),
+        Span::raw(" "),
+        Span::styled("Personal access token: ", field_style),
+        Span::styled(display, field_style),
+    ]);
 
-    field_lines.push(Line::from(""));
-    field_lines.push(Line::from(Span::styled(
-        "  ▶  Submit and login",
-        submit_style,
-    )));
-
-    let form_block = Paragraph::new(field_lines)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(get_orange_accent()))
-                .title("Credentials")
-                .title_style(
-                    Style::default()
-                        .fg(get_orange_color())
-                        .add_modifier(Modifier::BOLD),
-                ),
-        )
-        .wrap(ratatui::widgets::Wrap { trim: false });
+    let form_block = Paragraph::new(vec![
+        Line::from("Provide a GitHub token with `read:packages` scope."),
+        Line::from(""),
+        field_line,
+    ])
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(get_orange_accent()))
+            .title("Credentials")
+            .title_style(
+                Style::default()
+                    .fg(get_orange_color())
+                    .add_modifier(Modifier::BOLD),
+            ),
+    )
+    .wrap(ratatui::widgets::Wrap { trim: false });
     frame.render_widget(form_block, chunks[1]);
 
+    // Status
     let status_message = if let Some(message) = view.status {
         message.to_string()
     } else if !view.form.error_message.is_empty() {
@@ -142,8 +122,39 @@ pub fn render_registry_setup(frame: &mut Frame, view: &RegistrySetupView<'_>) {
         .wrap(ratatui::widgets::Wrap { trim: true });
     frame.render_widget(status_block, chunks[2]);
 
-    let help = Paragraph::new("Press Submit to authenticate or Esc to skip for now.")
-        .style(Style::default().fg(Color::DarkGray))
-        .centered();
-    frame.render_widget(help, chunks[3]);
+    // Buttons
+    let save_focused = matches!(&view.form.focus_state, FocusState::SaveButton);
+    let cancel_focused = matches!(&view.form.focus_state, FocusState::CancelButton);
+
+    let save_style = if save_focused {
+        Style::default()
+            .fg(Color::Black)
+            .bg(Color::Green)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+            .fg(Color::Green)
+            .add_modifier(Modifier::BOLD)
+    };
+
+    let cancel_style = if cancel_focused {
+        Style::default()
+            .fg(Color::Black)
+            .bg(Color::Red)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+            .fg(Color::Red)
+            .add_modifier(Modifier::BOLD)
+    };
+
+    let button_line = Line::from(vec![
+        Span::raw("  "),
+        Span::styled(" Submit ", save_style),
+        Span::raw("  "),
+        Span::styled(" Skip ", cancel_style),
+    ]);
+
+    let buttons = Paragraph::new(button_line).centered();
+    frame.render_widget(buttons, chunks[3]);
 }

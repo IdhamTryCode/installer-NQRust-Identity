@@ -1,10 +1,16 @@
+#[derive(Debug, Clone, PartialEq)]
+pub enum FocusState {
+    Field(usize),
+    SaveButton,
+    CancelButton,
+}
+
 #[derive(Debug, Clone)]
 pub struct FormData {
     pub(crate) api_key: String,
     pub(crate) openai_api_key: String, // For embedding models that use OpenAI
     pub(crate) selected_provider: String,
-    pub(crate) current_field: usize,
-    pub(crate) editing: bool,
+    pub(crate) focus_state: FocusState,
     pub(crate) error_message: String,
 }
 
@@ -14,8 +20,7 @@ impl FormData {
             api_key: String::new(),
             openai_api_key: String::new(),
             selected_provider: String::new(),
-            current_field: 0,
-            editing: false,
+            focus_state: FocusState::Field(0),
             error_message: String::new(),
         }
     }
@@ -43,9 +48,12 @@ impl FormData {
     }
 
     pub fn get_current_value_mut(&mut self) -> &mut String {
-        match self.current_field {
-            0 => &mut self.api_key,
-            1 => &mut self.openai_api_key,
+        match &self.focus_state {
+            FocusState::Field(idx) => match idx {
+                0 => &mut self.api_key,
+                1 => &mut self.openai_api_key,
+                _ => &mut self.api_key,
+            },
             _ => &mut self.api_key,
         }
     }
@@ -101,6 +109,7 @@ impl FormData {
             "open_router" => "OPENROUTER_API_KEY",
             "qwen3" => "OPENROUTER_API_KEY",
             "zhipu" => "ZHIPU_API_KEY",
+            "local_llm" => "OPENAI_API_KEY", // Local LLM uses OPENAI_API_KEY with dummy value
             _ => "API_KEY",
         }
     }

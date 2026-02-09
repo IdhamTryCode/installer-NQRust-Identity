@@ -206,6 +206,14 @@ const CONFIG_ZHIPU: ConfigTemplate = ConfigTemplate {
     pipeline_overrides: OVERRIDES_ZHIPU,
     settings: SETTINGS_DEBUG_TRUE,
 };
+const CONFIG_LOCAL_LLM: ConfigTemplate = ConfigTemplate {
+    key: "local_llm",
+    name: "Local LLM",
+    description: "Custom Local LLM with configurable endpoints",
+    template: include_str!("../config_templates/providers/local_llm.yaml"),
+    pipeline_overrides: NO_OVERRIDES,
+    settings: SETTINGS_DEBUG_TRUE,
+};
 
 pub const CONFIG_TEMPLATES: &[ConfigTemplate] = &[
     CONFIG_OPENAI,
@@ -221,6 +229,7 @@ pub const CONFIG_TEMPLATES: &[ConfigTemplate] = &[
     CONFIG_OPEN_ROUTER,
     CONFIG_QWEN3,
     CONFIG_ZHIPU,
+    CONFIG_LOCAL_LLM,
 ];
 
 impl ConfigTemplate {

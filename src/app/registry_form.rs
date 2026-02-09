@@ -1,8 +1,14 @@
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, PartialEq)]
+pub enum FocusState {
+    Field(usize),
+    SaveButton,
+    CancelButton,
+}
+
+#[derive(Debug)]
 pub struct RegistryForm {
     pub token: String,
-    pub current_field: usize,
-    pub editing: bool,
+    pub focus_state: FocusState,
     pub error_message: String,
 }
 
@@ -10,18 +16,9 @@ impl RegistryForm {
     pub fn new() -> Self {
         Self {
             token: String::new(),
-            current_field: 0,
-            editing: false,
+            focus_state: FocusState::Field(0),
             error_message: String::new(),
         }
-    }
-
-    pub fn total_items(&self) -> usize {
-        2
-    }
-
-    pub fn is_input_field(index: usize) -> bool {
-        index == 0
     }
 
     pub fn get_current_value_mut(&mut self) -> &mut String {
@@ -36,5 +33,11 @@ impl RegistryForm {
 
         self.error_message.clear();
         true
+    }
+}
+
+impl Default for RegistryForm {
+    fn default() -> Self {
+        Self::new()
     }
 }

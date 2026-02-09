@@ -4,6 +4,7 @@ pub enum AppState {
     Confirmation,
     EnvSetup,
     ConfigSelection,
+    LocalLlmConfig,
     UpdateList,
     UpdatePulling,
     Installing,

@@ -14,16 +14,18 @@ use tokio::process::Command;
 use crate::templates::{self, ConfigTemplate};
 use crate::ui::{
     self, ConfigSelectionView, ConfirmationView, EnvSetupView, ErrorView, InstallingView,
-    RegistrySetupView, SuccessView, UpdateListView,
+    LocalLlmConfigView, RegistrySetupView, SuccessView, UpdateListView,
 };
 use crate::utils;
 
 pub mod form_data;
+pub mod local_llm_form_data;
 pub mod registry_form;
 pub mod state;
 mod updates;
 
 pub use form_data::FormData;
+pub use local_llm_form_data::LocalLlmFormData;
 use registry_form::RegistryForm;
 pub use state::{AppState, MenuSelection};
 pub use updates::UpdateInfo;
@@ -52,6 +54,7 @@ pub struct App {
     pub(crate) env_exists: bool,
     pub(crate) config_exists: bool,
     pub(crate) form_data: FormData,
+    pub(crate) local_llm_form_data: LocalLlmFormData,
     pub(crate) menu_selection: MenuSelection,
     config_selection_index: usize,
     update_infos: Vec<UpdateInfo>,
@@ -60,6 +63,8 @@ pub struct App {
     registry_form: RegistryForm,
     registry_status: Option<String>,
     ghcr_token: Option<String>,
+    /// Temporarily store selected template key before generating config.yaml
+    selected_template_key: Option<String>,
     /// True when running as nqrust-analytics-airgapped (offline mode, no image pull)
     pub(crate) airgapped: bool,
 }
@@ -103,6 +108,7 @@ impl App {
             env_exists,
             config_exists,
             form_data: FormData::new(),
+            local_llm_form_data: LocalLlmFormData::new(),
             menu_selection: MenuSelection::Proceed,
             config_selection_index: 0,
             update_infos: Vec::new(),
@@ -111,6 +117,7 @@ impl App {
             registry_form,
             registry_status: None,
             ghcr_token: initial_token,
+            selected_template_key: None,
             airgapped,
         };
 
@@ -215,8 +222,7 @@ impl App {
                                         "Authentication required to check for updates.".to_string(),
                                     );
                                     self.state = AppState::RegistrySetup;
-                                    self.registry_form.current_field = 0;
-                                    self.registry_form.editing = false;
+                                    self.registry_form.focus_state = crate::app::registry_form::FocusState::Field(0);
                                 } else {
                                     match self.load_updates().await {
                                         Ok(_) => {
@@ -236,8 +242,7 @@ impl App {
                                 self.registry_status = Some(
                                     "Update token and submit (Ctrl+S). Esc to cancel.".to_string(),
                                 );
-                                self.registry_form.current_field = 0;
-                                self.registry_form.editing = false;
+                                self.registry_form.focus_state = crate::app::registry_form::FocusState::Field(0);
                                 self.registry_form.error_message.clear();
                                 self.registry_form.token =
                                     self.ghcr_token.clone().unwrap_or_default();
@@ -252,6 +257,24 @@ impl App {
                 AppState::EnvSetup => {
                     if let Some(proceed) = self.handle_form_events()? {
                         if proceed {
+                            // Generate config.yaml first using stored template key
+                            if let Some(template_key) = &self.selected_template_key {
+                                if let Some(template) = crate::templates::CONFIG_TEMPLATES
+                                    .iter()
+                                    .find(|t| t.key == template_key.as_str())
+                                {
+                                    if let Err(e) = self.write_config_yaml(template) {
+                                        self.state = AppState::Error(format!(
+                                            "Failed to generate config.yaml: {}",
+                                            e
+                                        ));
+                                        return Ok(());
+                                    }
+                                    self.config_exists = true;
+                                }
+                            }
+                            
+                            // Then generate .env file
                             if let Err(e) = self.generate_env_file() {
                                 self.state =
                                     AppState::Error(format!("Failed to generate .env: {}", e));
@@ -265,12 +288,48 @@ impl App {
                                 }
                             }
                         } else {
+                            // User canceled - reset selected provider and template key to force re-selection
+                            self.form_data.selected_provider.clear();
+                            self.selected_template_key = None;
                             self.state = AppState::Confirmation;
                         }
                     }
                 }
                 AppState::ConfigSelection => {
                     self.handle_config_selection_events()?;
+                }
+                AppState::LocalLlmConfig => {
+                    if let Some(proceed) = self.handle_local_llm_config_events()? {
+                        if proceed {
+                            if let Err(e) = self.generate_local_llm_config() {
+                                self.state =
+                                    AppState::Error(format!("Failed to generate config.yaml: {}", e));
+                            } else {
+                                self.config_exists = true;
+                                // Set provider to local_llm for env generation
+                                self.form_data.selected_provider = "local_llm".to_string();
+                                self.form_data.api_key.clear();
+                                self.form_data.openai_api_key.clear();
+                                self.form_data.focus_state = crate::app::form_data::FocusState::Field(0);
+                                self.form_data.error_message.clear();
+                                
+                                // Auto-generate .env file for Local LLM
+                                if let Err(e) = self.generate_env_file() {
+                                    self.state =
+                                        AppState::Error(format!("Failed to generate .env: {}", e));
+                                } else {
+                                    self.env_exists = true;
+                                    self.state = AppState::Confirmation;
+                                    self.menu_selection = MenuSelection::Proceed;
+                                }
+                            }
+                        } else {
+                            // User canceled - reset selection and go back to confirmation
+                            self.form_data.selected_provider.clear();
+                            self.selected_template_key = None;
+                            self.state = AppState::Confirmation;
+                        }
+                    }
                 }
                 AppState::UpdateList => {
                     if let Some(action) = self.handle_update_list_events()? {
@@ -413,66 +472,73 @@ impl App {
     }
 
     fn handle_registry_setup_events(&mut self) -> Result<Option<RegistryAction>> {
+        use crate::app::registry_form::FocusState;
+        
         if event::poll(std::time::Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
-                    if self.registry_form.editing
-                        && RegistryForm::is_input_field(self.registry_form.current_field)
-                    {
-                        match key.code {
-                            KeyCode::Enter | KeyCode::Esc => {
-                                self.registry_form.editing = false;
+                    match key.code {
+                        KeyCode::Up => {
+                            self.registry_form.focus_state = match &self.registry_form.focus_state {
+                                FocusState::Field(_) => FocusState::Field(0), // Only one field
+                                FocusState::SaveButton => FocusState::Field(0),
+                                FocusState::CancelButton => FocusState::SaveButton,
+                            };
+                        }
+                        KeyCode::Down => {
+                            self.registry_form.focus_state = match &self.registry_form.focus_state {
+                                FocusState::Field(_) => FocusState::SaveButton,
+                                FocusState::SaveButton => FocusState::CancelButton,
+                                FocusState::CancelButton => FocusState::CancelButton,
+                            };
+                        }
+                        KeyCode::Tab => {
+                            self.registry_form.focus_state = match &self.registry_form.focus_state {
+                                FocusState::Field(_) => FocusState::SaveButton,
+                                FocusState::SaveButton => FocusState::CancelButton,
+                                FocusState::CancelButton => FocusState::Field(0),
+                            };
+                        }
+                        KeyCode::BackTab => {
+                            self.registry_form.focus_state = match &self.registry_form.focus_state {
+                                FocusState::Field(_) => FocusState::CancelButton,
+                                FocusState::SaveButton => FocusState::Field(0),
+                                FocusState::CancelButton => FocusState::SaveButton,
+                            };
+                        }
+                        KeyCode::Enter => {
+                            match &self.registry_form.focus_state {
+                                FocusState::SaveButton => {
+                                    return Ok(Some(RegistryAction::Submit));
+                                }
+                                FocusState::CancelButton => {
+                                    return Ok(Some(RegistryAction::Skip));
+                                }
+                                _ => {}
                             }
-                            KeyCode::Backspace => {
-                                self.registry_form.get_current_value_mut().pop();
-                            }
-                            KeyCode::Char(c) => {
-                                if !key.modifiers.contains(KeyModifiers::CONTROL) {
+                        }
+                        KeyCode::Esc => {
+                            return Ok(Some(RegistryAction::Skip));
+                        }
+                        KeyCode::Char(c) => {
+                            if !key.modifiers.contains(KeyModifiers::CONTROL) {
+                                if matches!(&self.registry_form.focus_state, FocusState::Field(_)) {
                                     self.registry_form.get_current_value_mut().push(c);
                                 }
-                            }
-                            _ => {}
-                        }
-                    } else {
-                        match key.code {
-                            KeyCode::Up => {
-                                if self.registry_form.current_field == 0 {
-                                    self.registry_form.current_field =
-                                        self.registry_form.total_items() - 1;
-                                } else {
-                                    self.registry_form.current_field -= 1;
-                                }
-                            }
-                            KeyCode::Down | KeyCode::Tab => {
-                                self.registry_form.current_field =
-                                    (self.registry_form.current_field + 1)
-                                        % self.registry_form.total_items();
-                            }
-                            KeyCode::Enter => {
-                                if RegistryForm::is_input_field(self.registry_form.current_field) {
-                                    self.registry_form.editing = true;
-                                } else {
-                                    return Ok(Some(RegistryAction::Submit));
-                                }
-                            }
-                            KeyCode::Char('s') => {
-                                if key.modifiers.contains(KeyModifiers::CONTROL) {
-                                    return Ok(Some(RegistryAction::Submit));
-                                }
-                            }
-                            KeyCode::Esc | KeyCode::Char('q') => {
-                                return Ok(Some(RegistryAction::Skip));
-                            }
-                            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                            } else if c == 'c' {
                                 self.running = false;
                             }
-                            _ => {}
                         }
+                        KeyCode::Backspace => {
+                            if matches!(&self.registry_form.focus_state, FocusState::Field(_)) {
+                                self.registry_form.get_current_value_mut().pop();
+                            }
+                        }
+                        _ => {}
                     }
                 }
             }
         }
-
         Ok(None)
     }
 
@@ -1021,55 +1087,156 @@ impl App {
     }
 
     fn handle_form_events(&mut self) -> Result<Option<bool>> {
+        use crate::app::form_data::FocusState;
+        
         if event::poll(std::time::Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
-                    if self.form_data.editing {
-                        match key.code {
-                            KeyCode::Enter | KeyCode::Esc => {
-                                self.form_data.editing = false;
+                    let total_fields = self.form_data.get_total_fields();
+                    
+                    match key.code {
+                        KeyCode::Up => {
+                            self.form_data.focus_state = match &self.form_data.focus_state {
+                                FocusState::Field(idx) if *idx > 0 => FocusState::Field(idx - 1),
+                                FocusState::SaveButton => FocusState::Field(total_fields - 1),
+                                FocusState::CancelButton => FocusState::SaveButton,
+                                _ => self.form_data.focus_state.clone(),
+                            };
+                        }
+                        KeyCode::Down => {
+                            self.form_data.focus_state = match &self.form_data.focus_state {
+                                FocusState::Field(idx) if *idx < total_fields - 1 => FocusState::Field(idx + 1),
+                                FocusState::Field(_) => FocusState::SaveButton,
+                                FocusState::SaveButton => FocusState::CancelButton,
+                                _ => self.form_data.focus_state.clone(),
+                            };
+                        }
+                        KeyCode::Tab => {
+                            self.form_data.focus_state = match &self.form_data.focus_state {
+                                FocusState::Field(idx) if *idx < total_fields - 1 => FocusState::Field(idx + 1),
+                                FocusState::Field(_) => FocusState::SaveButton,
+                                FocusState::SaveButton => FocusState::CancelButton,
+                                FocusState::CancelButton => FocusState::Field(0),
+                            };
+                        }
+                        KeyCode::BackTab => {
+                            self.form_data.focus_state = match &self.form_data.focus_state {
+                                FocusState::Field(idx) if *idx > 0 => FocusState::Field(idx - 1),
+                                FocusState::Field(_) => FocusState::CancelButton,
+                                FocusState::SaveButton => FocusState::Field(total_fields - 1),
+                                FocusState::CancelButton => FocusState::SaveButton,
+                            };
+                        }
+                        KeyCode::Enter => {
+                            match &self.form_data.focus_state {
+                                FocusState::SaveButton => {
+                                    if self.form_data.validate() {
+                                        return Ok(Some(true));
+                                    }
+                                }
+                                FocusState::CancelButton => {
+                                    return Ok(Some(false));
+                                }
+                                _ => {}
                             }
-                            KeyCode::Char(c) => {
-                                self.form_data.get_current_value_mut().push(c);
+                        }
+                        KeyCode::Esc => {
+                            return Ok(Some(false));
+                        }
+                        KeyCode::Char(c) => {
+                            if !key.modifiers.contains(KeyModifiers::CONTROL) {
+                                if matches!(&self.form_data.focus_state, FocusState::Field(_)) {
+                                    self.form_data.get_current_value_mut().push(c);
+                                }
+                            } else if c == 'c' {
+                                self.running = false;
                             }
-                            KeyCode::Backspace => {
+                        }
+                        KeyCode::Backspace => {
+                            if matches!(&self.form_data.focus_state, FocusState::Field(_)) {
                                 self.form_data.get_current_value_mut().pop();
                             }
-                            _ => {}
                         }
-                    } else {
-                        match key.code {
-                            KeyCode::Enter => {
-                                if self.form_data.current_field < self.form_data.get_total_fields()
-                                {
-                                    self.form_data.editing = true;
-                                }
-                            }
-                            KeyCode::Up => {
-                                if self.form_data.current_field > 0 {
-                                    self.form_data.current_field -= 1;
-                                }
-                            }
-                            KeyCode::Down | KeyCode::Tab => {
-                                if self.form_data.current_field
-                                    < self.form_data.get_total_fields() - 1
-                                {
-                                    self.form_data.current_field += 1;
-                                }
-                            }
-                            KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                                if self.form_data.validate() {
-                                    return Ok(Some(true));
-                                }
-                            }
-                            KeyCode::Esc | KeyCode::Char('q') => {
-                                return Ok(Some(false));
-                            }
-                            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                                return Ok(Some(false));
-                            }
-                            _ => {}
+                        _ => {}
+                    }
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    fn handle_local_llm_config_events(&mut self) -> Result<Option<bool>> {
+        use crate::app::local_llm_form_data::FocusState;
+        
+        if event::poll(std::time::Duration::from_millis(100))? {
+            if let Event::Key(key) = event::read()? {
+                if key.kind == KeyEventKind::Press {
+                    let total_fields = self.local_llm_form_data.get_total_fields();
+                    
+                    match key.code {
+                        KeyCode::Up => {
+                            self.local_llm_form_data.focus_state = match &self.local_llm_form_data.focus_state {
+                                FocusState::Field(idx) if *idx > 0 => FocusState::Field(idx - 1),
+                                FocusState::SaveButton => FocusState::Field(total_fields - 1),
+                                FocusState::CancelButton => FocusState::SaveButton,
+                                _ => self.local_llm_form_data.focus_state.clone(),
+                            };
                         }
+                        KeyCode::Down => {
+                            self.local_llm_form_data.focus_state = match &self.local_llm_form_data.focus_state {
+                                FocusState::Field(idx) if *idx < total_fields - 1 => FocusState::Field(idx + 1),
+                                FocusState::Field(_) => FocusState::SaveButton,
+                                FocusState::SaveButton => FocusState::CancelButton,
+                                _ => self.local_llm_form_data.focus_state.clone(),
+                            };
+                        }
+                        KeyCode::Tab => {
+                            self.local_llm_form_data.focus_state = match &self.local_llm_form_data.focus_state {
+                                FocusState::Field(idx) if *idx < total_fields - 1 => FocusState::Field(idx + 1),
+                                FocusState::Field(_) => FocusState::SaveButton,
+                                FocusState::SaveButton => FocusState::CancelButton,
+                                FocusState::CancelButton => FocusState::Field(0),
+                            };
+                        }
+                        KeyCode::BackTab => {
+                            self.local_llm_form_data.focus_state = match &self.local_llm_form_data.focus_state {
+                                FocusState::Field(idx) if *idx > 0 => FocusState::Field(idx - 1),
+                                FocusState::Field(_) => FocusState::CancelButton,
+                                FocusState::SaveButton => FocusState::Field(total_fields - 1),
+                                FocusState::CancelButton => FocusState::SaveButton,
+                            };
+                        }
+                        KeyCode::Enter => {
+                            match &self.local_llm_form_data.focus_state {
+                                FocusState::SaveButton => {
+                                    if self.local_llm_form_data.validate() {
+                                        return Ok(Some(true));
+                                    }
+                                }
+                                FocusState::CancelButton => {
+                                    return Ok(Some(false));
+                                }
+                                _ => {}
+                            }
+                        }
+                        KeyCode::Esc => {
+                            return Ok(Some(false));
+                        }
+                        KeyCode::Char(c) => {
+                            if !key.modifiers.contains(KeyModifiers::CONTROL) {
+                                if matches!(&self.local_llm_form_data.focus_state, FocusState::Field(_)) {
+                                    self.local_llm_form_data.get_current_value_mut().push(c);
+                                }
+                            } else if c == 'c' {
+                                self.running = false;
+                            }
+                        }
+                        KeyCode::Backspace => {
+                            if matches!(&self.local_llm_form_data.focus_state, FocusState::Field(_)) {
+                                self.local_llm_form_data.get_current_value_mut().pop();
+                            }
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -1094,43 +1261,54 @@ impl App {
                 if key.kind == KeyEventKind::Press {
                     match key.code {
                         KeyCode::Up => {
-                            if self.config_selection_index == 0 {
-                                self.config_selection_index = total - 1;
-                            } else {
-                                self.config_selection_index -= 1;
+                            // Grid navigation: move up one row (4 columns)
+                            let cols = 4;
+                            if self.config_selection_index >= cols {
+                                self.config_selection_index -= cols;
                             }
                         }
                         KeyCode::Down | KeyCode::Tab => {
-                            self.config_selection_index = (self.config_selection_index + 1) % total;
+                            // Grid navigation: move down one row (4 columns)
+                            let cols = 4;
+                            if self.config_selection_index + cols < total {
+                                self.config_selection_index += cols;
+                            } else {
+                                // Wrap to next item if at bottom
+                                self.config_selection_index = (self.config_selection_index + 1) % total;
+                            }
+                        }
+                        KeyCode::Left => {
+                            // Grid navigation: move left
+                            if self.config_selection_index > 0 {
+                                self.config_selection_index -= 1;
+                            }
+                        }
+                        KeyCode::Right => {
+                            // Grid navigation: move right
+                            if self.config_selection_index < total - 1 {
+                                self.config_selection_index += 1;
+                            }
                         }
                         KeyCode::Enter => {
                             if let Some(template) =
                                 templates::CONFIG_TEMPLATES.get(self.config_selection_index)
                             {
-                                match self.write_config_yaml(template) {
-                                    Ok(_) => {
-                                        self.config_exists = true;
-                                        // Set selected provider and go to env setup
-                                        self.form_data.selected_provider = template.key.to_string();
-                                        self.form_data.api_key.clear();
-                                        self.form_data.openai_api_key.clear();
-                                        self.form_data.current_field = 0;
-                                        self.form_data.editing = false;
-                                        self.form_data.error_message.clear();
+                                // Check if this is Local LLM template
+                                if template.key == "local_llm" {
+                                    // Go to Local LLM form
+                                    self.local_llm_form_data = LocalLlmFormData::new();
+                                    self.state = AppState::LocalLlmConfig;
+                                } else {
+                                    // Store template key for later config generation
+                                    self.selected_template_key = Some(template.key.to_string());
+                                    // Set selected provider and go to env setup
+                                    self.form_data.selected_provider = template.key.to_string();
+                                    self.form_data.api_key.clear();
+                                    self.form_data.openai_api_key.clear();
+                                    self.form_data.focus_state = crate::app::form_data::FocusState::Field(0);
+                                    self.form_data.error_message.clear();
 
-                                        if !self.env_exists {
-                                            self.state = AppState::EnvSetup;
-                                        } else {
-                                            self.state = AppState::Confirmation;
-                                            self.menu_selection = MenuSelection::Proceed;
-                                        }
-                                    }
-                                    Err(e) => {
-                                        self.state = AppState::Error(format!(
-                                            "Failed to generate config.yaml: {}",
-                                            e
-                                        ));
-                                    }
+                                    self.state = AppState::EnvSetup;
                                 }
                             }
                         }
@@ -1184,7 +1362,10 @@ impl App {
         let openai_api_key_value = self.form_data.openai_api_key.trim();
 
         // Handle different providers
-        if env_key.is_empty() {
+        if self.form_data.selected_provider == "local_llm" {
+            // Local LLM uses dummy API key
+            env_content = env_content.replace("{{OPENAI_API_KEY}}", "sk-dummy-key-for-local-llm");
+        } else if env_key.is_empty() {
             // No API key needed (ollama)
             env_content = env_content.replace("{{OPENAI_API_KEY}}", "");
         } else {
@@ -1262,6 +1443,31 @@ impl App {
         let project_root = utils::project_root();
         let config_path = project_root.join("config.yaml");
         fs::write(config_path, template.render())?;
+        Ok(())
+    }
+
+    fn generate_local_llm_config(&self) -> Result<()> {
+        let project_root = utils::project_root();
+        let config_path = project_root.join("config.yaml");
+        
+        // Get the Local LLM template
+        let template = templates::CONFIG_TEMPLATES
+            .iter()
+            .find(|t| t.key == "local_llm")
+            .ok_or_else(|| eyre!("Local LLM template not found"))?;
+        
+        // Render the template with placeholders
+        let mut content = template.render();
+        
+        // Replace Local LLM specific placeholders
+        content = content.replace("{{LLM_MODEL}}", &self.local_llm_form_data.llm_model);
+        content = content.replace("{{LLM_API_BASE}}", &self.local_llm_form_data.llm_api_base);
+        content = content.replace("{{MAX_TOKENS}}", &self.local_llm_form_data.max_tokens);
+        content = content.replace("{{EMBEDDING_MODEL}}", &self.local_llm_form_data.embedding_model);
+        content = content.replace("{{EMBEDDING_API_BASE}}", &self.local_llm_form_data.embedding_api_base);
+        content = content.replace("{{EMBEDDING_DIM}}", &self.local_llm_form_data.embedding_dim);
+        
+        fs::write(config_path, content)?;
         Ok(())
     }
 
@@ -1569,6 +1775,12 @@ impl App {
                     selected_index: self.config_selection_index,
                 };
                 ui::render_config_selection(frame, &view);
+            }
+            AppState::LocalLlmConfig => {
+                let view = LocalLlmConfigView {
+                    form_data: &self.local_llm_form_data,
+                };
+                ui::render_local_llm_config(frame, &view);
             }
             AppState::UpdateList => {
                 let view = UpdateListView {
