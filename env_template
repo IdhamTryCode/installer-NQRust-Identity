@@ -38,6 +38,7 @@ HOST_PORT={{HOST_PORT}}
 AI_SERVICE_FORWARD_PORT={{AI_SERVICE_FORWARD_PORT}}
 
 # Analytics UI
+PERSIST_CREDENTIAL_DIR=/app/data
 EXPERIMENTAL_ENGINE_RUST_VERSION=false
 DB_TYPE=pg
 # Password for DB user "analytics"; must match the password in PG_URL below
@@ -71,3 +72,11 @@ POSTGRES_PASSWORD=demo123
 # Analytics Service
 PYTHONUNBUFFERED=1
 CONFIG_PATH=/app/config.yaml
+
+# License Configuration (REQUIRED)
+LICENSE_KEY={{LICENSE_KEY}}
+LICENSE_API_KEY=
+LICENSE_SERVER_URL=https://billing.nexusquantum.id
+LICENSE_FILE_PATH=
+LICENSE_GRACE_PERIOD_DAYS=7
+LICENSE_PUBLIC_KEY=

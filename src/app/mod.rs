@@ -88,10 +88,8 @@ impl App {
 
         let airgapped = crate::airgapped::is_airgapped_binary().unwrap_or(false);
 
-        // In airgapped mode, skip Registry Setup — images are already loaded, no GHCR pull needed
-        let initial_state = if airgapped {
-            AppState::Confirmation
-        } else if initial_token.is_some() {
+        // Skip registry setup if token already available, go straight to confirmation
+        let initial_state = if initial_token.is_some() || airgapped {
             AppState::Confirmation
         } else {
             AppState::RegistrySetup
@@ -541,6 +539,7 @@ impl App {
         }
         Ok(None)
     }
+
 
     async fn try_registry_login(&mut self) -> Result<bool> {
         if !self.registry_form.validate() {
@@ -1355,6 +1354,9 @@ impl App {
         env_content = env_content.replace("{{HOST_PORT}}", "3000");
         env_content = env_content.replace("{{AI_SERVICE_FORWARD_PORT}}", "5555");
         env_content = env_content.replace("{{JWT_SECRET}}", &jwt_secret);
+
+        // License key — left empty; user activates via the web UI after installation
+        env_content = env_content.replace("{{LICENSE_KEY}}", "");
 
         // Set API key based on provider
         let env_key = self.form_data.get_env_key_name();
