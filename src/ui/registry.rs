@@ -143,9 +143,7 @@ pub fn render_registry_setup(frame: &mut Frame, view: &RegistrySetupView<'_>) {
             .bg(Color::Red)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default()
-            .fg(Color::Red)
-            .add_modifier(Modifier::BOLD)
+        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
     };
 
     let button_line = Line::from(vec![

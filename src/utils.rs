@@ -114,7 +114,9 @@ pub fn ensure_compose_bundle(root: &Path) -> Result<()> {
     fs::create_dir_all(&scripts_dir)?;
     // Always write (with LF line endings) so existing installs get fix for CRLF "set: Illegal option -" in container
     let ensure_analytics_db = scripts_dir.join("ensure-analytics-db.sh");
-    let script_content = ENSURE_ANALYTICS_DB_SH.replace("\r\n", "\n").replace('\r', "\n");
+    let script_content = ENSURE_ANALYTICS_DB_SH
+        .replace("\r\n", "\n")
+        .replace('\r', "\n");
     fs::write(&ensure_analytics_db, script_content)?;
     #[cfg(unix)]
     {

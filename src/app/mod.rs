@@ -220,7 +220,8 @@ impl App {
                                         "Authentication required to check for updates.".to_string(),
                                     );
                                     self.state = AppState::RegistrySetup;
-                                    self.registry_form.focus_state = crate::app::registry_form::FocusState::Field(0);
+                                    self.registry_form.focus_state =
+                                        crate::app::registry_form::FocusState::Field(0);
                                 } else {
                                     match self.load_updates().await {
                                         Ok(_) => {
@@ -240,7 +241,8 @@ impl App {
                                 self.registry_status = Some(
                                     "Update token and submit (Ctrl+S). Esc to cancel.".to_string(),
                                 );
-                                self.registry_form.focus_state = crate::app::registry_form::FocusState::Field(0);
+                                self.registry_form.focus_state =
+                                    crate::app::registry_form::FocusState::Field(0);
                                 self.registry_form.error_message.clear();
                                 self.registry_form.token =
                                     self.ghcr_token.clone().unwrap_or_default();
@@ -271,7 +273,7 @@ impl App {
                                     self.config_exists = true;
                                 }
                             }
-                            
+
                             // Then generate .env file
                             if let Err(e) = self.generate_env_file() {
                                 self.state =
@@ -300,17 +302,20 @@ impl App {
                     if let Some(proceed) = self.handle_local_llm_config_events()? {
                         if proceed {
                             if let Err(e) = self.generate_local_llm_config() {
-                                self.state =
-                                    AppState::Error(format!("Failed to generate config.yaml: {}", e));
+                                self.state = AppState::Error(format!(
+                                    "Failed to generate config.yaml: {}",
+                                    e
+                                ));
                             } else {
                                 self.config_exists = true;
                                 // Set provider to local_llm for env generation
                                 self.form_data.selected_provider = "local_llm".to_string();
                                 self.form_data.api_key.clear();
                                 self.form_data.openai_api_key.clear();
-                                self.form_data.focus_state = crate::app::form_data::FocusState::Field(0);
+                                self.form_data.focus_state =
+                                    crate::app::form_data::FocusState::Field(0);
                                 self.form_data.error_message.clear();
-                                
+
                                 // Auto-generate .env file for Local LLM
                                 if let Err(e) = self.generate_env_file() {
                                     self.state =
@@ -471,7 +476,7 @@ impl App {
 
     fn handle_registry_setup_events(&mut self) -> Result<Option<RegistryAction>> {
         use crate::app::registry_form::FocusState;
-        
+
         if event::poll(std::time::Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
@@ -504,17 +509,15 @@ impl App {
                                 FocusState::CancelButton => FocusState::SaveButton,
                             };
                         }
-                        KeyCode::Enter => {
-                            match &self.registry_form.focus_state {
-                                FocusState::SaveButton => {
-                                    return Ok(Some(RegistryAction::Submit));
-                                }
-                                FocusState::CancelButton => {
-                                    return Ok(Some(RegistryAction::Skip));
-                                }
-                                _ => {}
+                        KeyCode::Enter => match &self.registry_form.focus_state {
+                            FocusState::SaveButton => {
+                                return Ok(Some(RegistryAction::Submit));
                             }
-                        }
+                            FocusState::CancelButton => {
+                                return Ok(Some(RegistryAction::Skip));
+                            }
+                            _ => {}
+                        },
                         KeyCode::Esc => {
                             return Ok(Some(RegistryAction::Skip));
                         }
@@ -539,7 +542,6 @@ impl App {
         }
         Ok(None)
     }
-
 
     async fn try_registry_login(&mut self) -> Result<bool> {
         if !self.registry_form.validate() {
@@ -1087,12 +1089,12 @@ impl App {
 
     fn handle_form_events(&mut self) -> Result<Option<bool>> {
         use crate::app::form_data::FocusState;
-        
+
         if event::poll(std::time::Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
                     let total_fields = self.form_data.get_total_fields();
-                    
+
                     match key.code {
                         KeyCode::Up => {
                             self.form_data.focus_state = match &self.form_data.focus_state {
@@ -1104,7 +1106,9 @@ impl App {
                         }
                         KeyCode::Down => {
                             self.form_data.focus_state = match &self.form_data.focus_state {
-                                FocusState::Field(idx) if *idx < total_fields - 1 => FocusState::Field(idx + 1),
+                                FocusState::Field(idx) if *idx < total_fields - 1 => {
+                                    FocusState::Field(idx + 1)
+                                }
                                 FocusState::Field(_) => FocusState::SaveButton,
                                 FocusState::SaveButton => FocusState::CancelButton,
                                 _ => self.form_data.focus_state.clone(),
@@ -1112,7 +1116,9 @@ impl App {
                         }
                         KeyCode::Tab => {
                             self.form_data.focus_state = match &self.form_data.focus_state {
-                                FocusState::Field(idx) if *idx < total_fields - 1 => FocusState::Field(idx + 1),
+                                FocusState::Field(idx) if *idx < total_fields - 1 => {
+                                    FocusState::Field(idx + 1)
+                                }
                                 FocusState::Field(_) => FocusState::SaveButton,
                                 FocusState::SaveButton => FocusState::CancelButton,
                                 FocusState::CancelButton => FocusState::Field(0),
@@ -1126,19 +1132,17 @@ impl App {
                                 FocusState::CancelButton => FocusState::SaveButton,
                             };
                         }
-                        KeyCode::Enter => {
-                            match &self.form_data.focus_state {
-                                FocusState::SaveButton => {
-                                    if self.form_data.validate() {
-                                        return Ok(Some(true));
-                                    }
+                        KeyCode::Enter => match &self.form_data.focus_state {
+                            FocusState::SaveButton => {
+                                if self.form_data.validate() {
+                                    return Ok(Some(true));
                                 }
-                                FocusState::CancelButton => {
-                                    return Ok(Some(false));
-                                }
-                                _ => {}
                             }
-                        }
+                            FocusState::CancelButton => {
+                                return Ok(Some(false));
+                            }
+                            _ => {}
+                        },
                         KeyCode::Esc => {
                             return Ok(Some(false));
                         }
@@ -1166,15 +1170,18 @@ impl App {
 
     fn handle_local_llm_config_events(&mut self) -> Result<Option<bool>> {
         use crate::app::local_llm_form_data::FocusState;
-        
+
         if event::poll(std::time::Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
                     let total_fields = self.local_llm_form_data.get_total_fields();
-                    
+
                     match key.code {
                         KeyCode::Up => {
-                            self.local_llm_form_data.focus_state = match &self.local_llm_form_data.focus_state {
+                            self.local_llm_form_data.focus_state = match &self
+                                .local_llm_form_data
+                                .focus_state
+                            {
                                 FocusState::Field(idx) if *idx > 0 => FocusState::Field(idx - 1),
                                 FocusState::SaveButton => FocusState::Field(total_fields - 1),
                                 FocusState::CancelButton => FocusState::SaveButton,
@@ -1182,48 +1189,58 @@ impl App {
                             };
                         }
                         KeyCode::Down => {
-                            self.local_llm_form_data.focus_state = match &self.local_llm_form_data.focus_state {
-                                FocusState::Field(idx) if *idx < total_fields - 1 => FocusState::Field(idx + 1),
-                                FocusState::Field(_) => FocusState::SaveButton,
-                                FocusState::SaveButton => FocusState::CancelButton,
-                                _ => self.local_llm_form_data.focus_state.clone(),
-                            };
+                            self.local_llm_form_data.focus_state =
+                                match &self.local_llm_form_data.focus_state {
+                                    FocusState::Field(idx) if *idx < total_fields - 1 => {
+                                        FocusState::Field(idx + 1)
+                                    }
+                                    FocusState::Field(_) => FocusState::SaveButton,
+                                    FocusState::SaveButton => FocusState::CancelButton,
+                                    _ => self.local_llm_form_data.focus_state.clone(),
+                                };
                         }
                         KeyCode::Tab => {
-                            self.local_llm_form_data.focus_state = match &self.local_llm_form_data.focus_state {
-                                FocusState::Field(idx) if *idx < total_fields - 1 => FocusState::Field(idx + 1),
-                                FocusState::Field(_) => FocusState::SaveButton,
-                                FocusState::SaveButton => FocusState::CancelButton,
-                                FocusState::CancelButton => FocusState::Field(0),
-                            };
+                            self.local_llm_form_data.focus_state =
+                                match &self.local_llm_form_data.focus_state {
+                                    FocusState::Field(idx) if *idx < total_fields - 1 => {
+                                        FocusState::Field(idx + 1)
+                                    }
+                                    FocusState::Field(_) => FocusState::SaveButton,
+                                    FocusState::SaveButton => FocusState::CancelButton,
+                                    FocusState::CancelButton => FocusState::Field(0),
+                                };
                         }
                         KeyCode::BackTab => {
-                            self.local_llm_form_data.focus_state = match &self.local_llm_form_data.focus_state {
+                            self.local_llm_form_data.focus_state = match &self
+                                .local_llm_form_data
+                                .focus_state
+                            {
                                 FocusState::Field(idx) if *idx > 0 => FocusState::Field(idx - 1),
                                 FocusState::Field(_) => FocusState::CancelButton,
                                 FocusState::SaveButton => FocusState::Field(total_fields - 1),
                                 FocusState::CancelButton => FocusState::SaveButton,
                             };
                         }
-                        KeyCode::Enter => {
-                            match &self.local_llm_form_data.focus_state {
-                                FocusState::SaveButton => {
-                                    if self.local_llm_form_data.validate() {
-                                        return Ok(Some(true));
-                                    }
+                        KeyCode::Enter => match &self.local_llm_form_data.focus_state {
+                            FocusState::SaveButton => {
+                                if self.local_llm_form_data.validate() {
+                                    return Ok(Some(true));
                                 }
-                                FocusState::CancelButton => {
-                                    return Ok(Some(false));
-                                }
-                                _ => {}
                             }
-                        }
+                            FocusState::CancelButton => {
+                                return Ok(Some(false));
+                            }
+                            _ => {}
+                        },
                         KeyCode::Esc => {
                             return Ok(Some(false));
                         }
                         KeyCode::Char(c) => {
                             if !key.modifiers.contains(KeyModifiers::CONTROL) {
-                                if matches!(&self.local_llm_form_data.focus_state, FocusState::Field(_)) {
+                                if matches!(
+                                    &self.local_llm_form_data.focus_state,
+                                    FocusState::Field(_)
+                                ) {
                                     self.local_llm_form_data.get_current_value_mut().push(c);
                                 }
                             } else if c == 'c' {
@@ -1231,7 +1248,8 @@ impl App {
                             }
                         }
                         KeyCode::Backspace => {
-                            if matches!(&self.local_llm_form_data.focus_state, FocusState::Field(_)) {
+                            if matches!(&self.local_llm_form_data.focus_state, FocusState::Field(_))
+                            {
                                 self.local_llm_form_data.get_current_value_mut().pop();
                             }
                         }
@@ -1273,7 +1291,8 @@ impl App {
                                 self.config_selection_index += cols;
                             } else {
                                 // Wrap to next item if at bottom
-                                self.config_selection_index = (self.config_selection_index + 1) % total;
+                                self.config_selection_index =
+                                    (self.config_selection_index + 1) % total;
                             }
                         }
                         KeyCode::Left => {
@@ -1304,7 +1323,8 @@ impl App {
                                     self.form_data.selected_provider = template.key.to_string();
                                     self.form_data.api_key.clear();
                                     self.form_data.openai_api_key.clear();
-                                    self.form_data.focus_state = crate::app::form_data::FocusState::Field(0);
+                                    self.form_data.focus_state =
+                                        crate::app::form_data::FocusState::Field(0);
                                     self.form_data.error_message.clear();
 
                                     self.state = AppState::EnvSetup;
@@ -1451,24 +1471,30 @@ impl App {
     fn generate_local_llm_config(&self) -> Result<()> {
         let project_root = utils::project_root();
         let config_path = project_root.join("config.yaml");
-        
+
         // Get the Local LLM template
         let template = templates::CONFIG_TEMPLATES
             .iter()
             .find(|t| t.key == "local_llm")
             .ok_or_else(|| eyre!("Local LLM template not found"))?;
-        
+
         // Render the template with placeholders
         let mut content = template.render();
-        
+
         // Replace Local LLM specific placeholders
         content = content.replace("{{LLM_MODEL}}", &self.local_llm_form_data.llm_model);
         content = content.replace("{{LLM_API_BASE}}", &self.local_llm_form_data.llm_api_base);
         content = content.replace("{{MAX_TOKENS}}", &self.local_llm_form_data.max_tokens);
-        content = content.replace("{{EMBEDDING_MODEL}}", &self.local_llm_form_data.embedding_model);
-        content = content.replace("{{EMBEDDING_API_BASE}}", &self.local_llm_form_data.embedding_api_base);
+        content = content.replace(
+            "{{EMBEDDING_MODEL}}",
+            &self.local_llm_form_data.embedding_model,
+        );
+        content = content.replace(
+            "{{EMBEDDING_API_BASE}}",
+            &self.local_llm_form_data.embedding_api_base,
+        );
         content = content.replace("{{EMBEDDING_DIM}}", &self.local_llm_form_data.embedding_dim);
-        
+
         fs::write(config_path, content)?;
         Ok(())
     }

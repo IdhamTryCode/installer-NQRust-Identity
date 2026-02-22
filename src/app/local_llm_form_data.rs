@@ -70,7 +70,8 @@ impl LocalLlmFormData {
             return false;
         }
         if !self.is_valid_url(&self.embedding_api_base) {
-            self.error_message = "Embedding API Base must start with http:// or https://".to_string();
+            self.error_message =
+                "Embedding API Base must start with http:// or https://".to_string();
             return false;
         }
 

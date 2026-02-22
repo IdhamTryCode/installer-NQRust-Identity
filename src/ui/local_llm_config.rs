@@ -49,7 +49,7 @@ pub fn render_local_llm_config(frame: &mut Frame, view: &LocalLlmConfigView<'_>)
     for i in 0..total_fields {
         let is_focused = matches!(&view.form_data.focus_state, FocusState::Field(idx) if *idx == i);
         let field_name = view.form_data.get_field_name(i);
-        
+
         let value = match i {
             0 => &view.form_data.llm_model,
             1 => &view.form_data.llm_api_base,
@@ -114,16 +114,22 @@ pub fn render_local_llm_config(frame: &mut Frame, view: &LocalLlmConfigView<'_>)
 
     // Help text
     let mut help_lines = vec![];
-    
+
     // Show error message first if present
     if !view.form_data.error_message.is_empty() {
         help_lines.push(Line::from(vec![
-            Span::styled("❌ ERROR: ", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
-            Span::styled(&view.form_data.error_message, Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "❌ ERROR: ",
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                &view.form_data.error_message,
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            ),
         ]));
         help_lines.push(Line::from(""));
     }
-    
+
     help_lines.push(Line::from(vec![
         Span::styled("Navigation: ", Style::default().fg(Color::Yellow)),
         Span::raw("↑↓ or Tab to move | Type to edit"),
@@ -165,9 +171,7 @@ pub fn render_local_llm_config(frame: &mut Frame, view: &LocalLlmConfigView<'_>)
             .bg(Color::Red)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default()
-            .fg(Color::Red)
-            .add_modifier(Modifier::BOLD)
+        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
     };
 
     let button_line = Line::from(vec![

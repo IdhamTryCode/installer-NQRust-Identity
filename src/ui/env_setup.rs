@@ -54,7 +54,7 @@ pub fn render_env_setup(frame: &mut Frame, view: &EnvSetupView<'_>) {
 
     // Field 0: Provider API Key
     let is_field0_focused = matches!(&data.focus_state, FocusState::Field(0));
-    
+
     let field0_style = if is_field0_focused {
         Style::default()
             .fg(Color::Black)
@@ -94,7 +94,7 @@ pub fn render_env_setup(frame: &mut Frame, view: &EnvSetupView<'_>) {
     // Field 1: OpenAI API Key (if needed for embedding)
     if needs_openai {
         let is_field1_focused = matches!(&data.focus_state, FocusState::Field(1));
-        
+
         let field1_style = if is_field1_focused {
             Style::default()
                 .fg(Color::Black)
@@ -186,9 +186,7 @@ pub fn render_env_setup(frame: &mut Frame, view: &EnvSetupView<'_>) {
             .bg(Color::Red)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default()
-            .fg(Color::Red)
-            .add_modifier(Modifier::BOLD)
+        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
     };
 
     let button_line = Line::from(vec![
