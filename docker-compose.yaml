@@ -85,10 +85,13 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      PGPORT: ${POSTGRES_PORT}
+    command: [ "postgres", "-p", "${POSTGRES_PORT}" ]
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT}:${POSTGRES_PORT}"
     healthcheck:
-      test: [ "CMD-SHELL", "psql -U ${POSTGRES_USER:-demo} -d ${POSTGRES_DB:-northwind} -c \"SELECT 1 FROM pg_constraint WHERE conname = 'fk_orders_customers'\"" ]
+      test: [ "CMD-SHELL", "psql -p ${POSTGRES_PORT} -U ${POSTGRES_USER:-demo} -d ${POSTGRES_DB:-northwind} -c \"SELECT 1 FROM pg_constraint WHERE conname = 'fk_orders_customers'\"" ]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -107,7 +110,7 @@ services:
       - .env
     environment:
       PGHOST: northwind-db
-      PGPORT: 5432
+      PGPORT: ${POSTGRES_PORT}
       PGUSER: ${POSTGRES_USER:-demo}
       PGPASSWORD: ${POSTGRES_PASSWORD:-demo123}
     volumes:

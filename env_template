@@ -43,7 +43,7 @@ EXPERIMENTAL_ENGINE_RUST_VERSION=false
 DB_TYPE=pg
 # Password for DB user "analytics"; must match the password in PG_URL below
 ANALYTICS_DB_PASSWORD=analytics123
-PG_URL=postgres://analytics:analytics123@northwind-db:5432/analytics
+PG_URL=postgres://analytics:analytics123@northwind-db:${POSTGRES_PORT}/analytics
 NEXT_PUBLIC_TELEMETRY_ENABLED=false
 
 # Authentication (REQUIRED for user management)
@@ -65,6 +65,7 @@ GITHUB_CLIENT_SECRET=
 LOCAL_STORAGE=.
 
 # Northwind Database
+POSTGRES_PORT=5435
 POSTGRES_DB=northwind
 POSTGRES_USER=demo
 POSTGRES_PASSWORD=demo123
@@ -75,8 +76,8 @@ CONFIG_PATH=/app/config.yaml
 
 # License Configuration (REQUIRED)
 LICENSE_KEY={{LICENSE_KEY}}
-LICENSE_API_KEY=
-LICENSE_SERVER_URL=https://billing.nexusquantum.id
 LICENSE_FILE_PATH=
 LICENSE_GRACE_PERIOD_DAYS=7
-LICENSE_PUBLIC_KEY=
+LICENSE_API_KEY=pk_live_VsDnueSTpAIQmLKNkMz9MkOhRpqDTszZXzjDAbQj
+LICENSE_SERVER_URL=https://billing.nexusquantum.id
+LICENSE_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAupcIIOQicInO2h3mlI7Kx8LYp0b8y3UKm0pca00Gzc4=\n-----END PUBLIC KEY-----"
