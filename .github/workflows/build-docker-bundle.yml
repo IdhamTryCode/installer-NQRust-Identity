@@ -43,13 +43,15 @@ jobs:
               run: |
                   sudo chmod +x scripts/airgapped/download-docker-packages.sh
                   sudo chmod +x scripts/airgapped/install-docker-offline.sh
-                  sudo mkdir -p build
-                  # APT::Sandbox::User=root prevents permission denied warning when running as root
-                  sudo -E apt-get -o APT::Sandbox::User=root update -qq || true
-                  sudo ./scripts/airgapped/download-docker-packages.sh "${{ matrix.distro }}" "build/docker-packages/${{ matrix.distro }}"
+                  OUTDIR="$GITHUB_WORKSPACE/build/docker-packages/${{ matrix.distro }}"
+                  sudo mkdir -p "$OUTDIR"
+                  sudo ./scripts/airgapped/download-docker-packages.sh "${{ matrix.distro }}" "$OUTDIR"
                   # Copy install script into the bundle
-                  sudo cp scripts/airgapped/install-docker-offline.sh "build/docker-packages/${{ matrix.distro }}/"
-                  sudo chmod +x "build/docker-packages/${{ matrix.distro }}/install-docker-offline.sh"
+                  sudo cp "$GITHUB_WORKSPACE/scripts/airgapped/install-docker-offline.sh" "$OUTDIR/"
+                  sudo chmod +x "$OUTDIR/install-docker-offline.sh"
+                  # Fix ownership so subsequent steps (without sudo) can access files
+                  sudo chown -R "$USER:$USER" "$GITHUB_WORKSPACE/build"
+                  ls -lh "$OUTDIR"
 
             - name: Create bundle tarball
               run: |
