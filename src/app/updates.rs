@@ -17,7 +17,7 @@ struct ServiceConfig {
 }
 
 const SERVICE_CONFIGS: &[ServiceConfig] = &[ServiceConfig {
-    display_name: "NQRust Identity (Keycloak)",
+    display_name: "NQRust Identity",
     image: "ghcr.io/nexusquantum/nqrust-identity",
     package: "nqrust-identity",
     current_tag: "latest",

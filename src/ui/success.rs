@@ -43,7 +43,7 @@ pub fn render_success(frame: &mut Frame, view: &SuccessView<'_>) {
     let message = vec![
         Line::from(""),
         Line::from(Span::styled(
-            "NQRust Identity (Keycloak) has been successfully installed!",
+            "NQRust Identity has been successfully installed!",
             Style::default()
                 .fg(Color::Green)
                 .add_modifier(Modifier::BOLD),
@@ -55,11 +55,11 @@ pub fn render_success(frame: &mut Frame, view: &SuccessView<'_>) {
             Style::default().fg(Color::White),
         )),
         Line::from(Span::styled(
-            "  • identity     → Keycloak Admin Console:",
+            "  • identity     → Identity Console:",
             Style::default().fg(Color::White),
         )),
         Line::from(Span::styled(
-            "    http://localhost:8080/admin",
+            "    http://localhost:8008/auth",
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::UNDERLINED),

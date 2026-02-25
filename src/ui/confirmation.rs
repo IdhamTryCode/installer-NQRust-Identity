@@ -71,7 +71,7 @@ pub fn render_confirmation(frame: &mut Frame, view: &ConfirmationView<'_>) {
         Style::default().fg(Color::White),
     )));
     content_lines.push(Line::from(Span::styled(
-        "  • identity     (Keycloak — http://localhost:8080)",
+        "  • identity     (Identity — http://localhost:8008)",
         Style::default().fg(Color::White),
     )));
     content_lines.push(Line::from(""));

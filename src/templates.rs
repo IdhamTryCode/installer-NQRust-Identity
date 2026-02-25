@@ -1,5 +1,5 @@
 // templates.rs - stub for NQRust Identity installer
-// Config template generation is not needed for Identity (Keycloak).
+// Config template generation is not needed for Identity.
 
 #[allow(dead_code)]
 pub struct ConfigTemplate {
