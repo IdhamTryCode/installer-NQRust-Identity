@@ -31,9 +31,9 @@ services:
     ports:
       - "8008:8080"
     environment:
-      # Admin bootstrap
-      KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: admin
+      # Admin bootstrap (new variables to avoid warnings)
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
 
       # Production database config
       KC_DB: postgres
@@ -49,6 +49,8 @@ services:
       # In production, either set KC_HOSTNAME or keep strict off behind a proxy.
       KC_HTTP_ENABLED: "true"
       KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_STRICT_HTTPS: "false"
+      KC_HTTP_RELATIVE_PATH: "/auth"
 
       # Behind reverse proxy? (uncomment + tune)
       # KC_PROXY: edge
