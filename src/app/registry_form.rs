@@ -39,7 +39,6 @@ impl RegistryForm {
     }
 }
 
-
 impl Default for RegistryForm {
     fn default() -> Self {
         Self::new()

@@ -16,14 +16,12 @@ struct ServiceConfig {
     pub current_tag: &'static str,
 }
 
-const SERVICE_CONFIGS: &[ServiceConfig] = &[
-    ServiceConfig {
-        display_name: "NQRust Identity (Keycloak)",
-        image: "ghcr.io/nexusquantum/nqrust-identity",
-        package: "nqrust-identity",
-        current_tag: "latest",
-    },
-];
+const SERVICE_CONFIGS: &[ServiceConfig] = &[ServiceConfig {
+    display_name: "NQRust Identity (Keycloak)",
+    image: "ghcr.io/nexusquantum/nqrust-identity",
+    package: "nqrust-identity",
+    current_tag: "latest",
+}];
 
 #[derive(Debug, Clone)]
 pub struct UpdateInfo {
@@ -378,9 +376,8 @@ pub async fn get_local_image_created(image: &str, tag: &str) -> Result<Option<Da
 /// Falls back to GHCR package tags if no GitHub Release exists yet.
 pub async fn fetch_latest_identity_tag(client: &Client, token: Option<&str>) -> Option<String> {
     // Try GitHub Releases first (most reliable semver source)
-    let release_url = format!(
-        "https://api.github.com/repos/{OWNER}/nqrust-identity/releases/latest"
-    );
+    let release_url =
+        format!("https://api.github.com/repos/{OWNER}/nqrust-identity/releases/latest");
     let mut req = client
         .get(&release_url)
         .header("User-Agent", "nqrust-identity")

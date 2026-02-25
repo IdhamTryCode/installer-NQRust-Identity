@@ -71,7 +71,9 @@ pub fn render_success(frame: &mut Frame, view: &SuccessView<'_>) {
         )),
         Line::from(Span::styled(
             "  ⚠  Please change the admin password after first login!",
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
         )),
     ];
 

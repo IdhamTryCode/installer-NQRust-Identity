@@ -17,7 +17,6 @@ const REQUIRED_IMAGES: &[(&str, &str)] = &[
     ),
 ];
 
-
 /// Check if Docker is available
 pub fn check_docker_available() -> Result<()> {
     let output = Command::new("docker").arg("--version").output();

@@ -179,8 +179,9 @@ impl App {
                                 // Identity: no .env / config.yaml needed, proceed directly
                                 let root = utils::project_root();
                                 if let Err(e) = utils::ensure_compose_bundle(&root) {
-                                    self.state =
-                                        AppState::Error(format!("Failed to write compose file: {e}"));
+                                    self.state = AppState::Error(format!(
+                                        "Failed to write compose file: {e}"
+                                    ));
                                 } else {
                                     self.state = AppState::Installing;
                                     if let Err(e) = self.run_docker_compose().await {
@@ -193,11 +194,8 @@ impl App {
                                 self.state = AppState::UpdateList;
                                 self.update_message = Some("Fetching update info...".to_string());
                                 let client = Client::new();
-                                match collect_update_infos(
-                                    &client,
-                                    self.ghcr_token.as_deref(),
-                                )
-                                .await
+                                match collect_update_infos(&client, self.ghcr_token.as_deref())
+                                    .await
                                 {
                                     Ok(infos) => {
                                         for mut info in infos {
@@ -240,14 +238,10 @@ impl App {
                             }
                             UpdateListAction::Refresh => {
                                 self.update_infos.clear();
-                                self.update_message =
-                                    Some("Fetching update info...".to_string());
+                                self.update_message = Some("Fetching update info...".to_string());
                                 let client = Client::new();
-                                match collect_update_infos(
-                                    &client,
-                                    self.ghcr_token.as_deref(),
-                                )
-                                .await
+                                match collect_update_infos(&client, self.ghcr_token.as_deref())
+                                    .await
                                 {
                                     Ok(infos) => {
                                         self.update_infos = infos;
@@ -568,7 +562,10 @@ impl App {
                 }
             }
         } else {
-            self.add_log(&format!("❌ Failed to pull {} — check token and image name", reference));
+            self.add_log(&format!(
+                "❌ Failed to pull {} — check token and image name",
+                reference
+            ));
         }
 
         Ok(())
@@ -613,10 +610,7 @@ impl App {
         let compose_file = root.join("docker-compose.yaml");
 
         if !compose_file.exists() {
-            return Err(eyre!(
-                "docker-compose.yaml not found in {}",
-                root.display()
-            ));
+            return Err(eyre!("docker-compose.yaml not found in {}", root.display()));
         }
 
         let compose_file_str = compose_file.to_string_lossy().to_string();
@@ -749,11 +743,9 @@ impl App {
         if let Some(name) = service_name {
             if line.contains("Started") || line.contains("Running") || line.contains("Created") {
                 self.current_service = name;
-                self.completed_services =
-                    (self.completed_services + 1).min(self.total_services);
-                self.progress = (self.completed_services as f64 / self.total_services as f64)
-                    * 50.0
-                    + 50.0;
+                self.completed_services = (self.completed_services + 1).min(self.total_services);
+                self.progress =
+                    (self.completed_services as f64 / self.total_services as f64) * 50.0 + 50.0;
             }
         }
     }
