@@ -29,7 +29,7 @@ services:
       postgres:
         condition: service_healthy
     ports:
-      - "8080:8080"
+      - "8008:8080"
     environment:
       # Admin bootstrap
       KEYCLOAK_ADMIN: admin
