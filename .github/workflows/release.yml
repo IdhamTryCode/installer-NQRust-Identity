@@ -35,9 +35,13 @@ jobs:
       - name: Sync Cargo version with tag
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          echo "Setting Cargo.toml version to ${VERSION} from tag ${GITHUB_REF_NAME}"
-          sed -i "s/^version = \".*\"/version = \"${VERSION}\"/" Cargo.toml
-          grep "^version" Cargo.toml
+          if [ -z "$VERSION" ] || ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
+            echo "⚠️ Tag '${GITHUB_REF_NAME}' is not semver — skipping version sync"
+          else
+            echo "Setting Cargo.toml version to ${VERSION} from tag ${GITHUB_REF_NAME}"
+            sed -i "s/^version = \"[^\"]*\"/version = \"${VERSION}\"/" Cargo.toml
+            grep "^version" Cargo.toml
+          fi
 
       - name: Build release binary
         run: cargo build --release
