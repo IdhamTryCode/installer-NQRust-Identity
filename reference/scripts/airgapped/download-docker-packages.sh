@@ -92,6 +92,7 @@ else
     BASE_URL="https://download.docker.com/linux/${OS}/dists/${CODENAME}/pool/stable/amd64"
     INDEX=$(curl -sSL "${BASE_URL}/" 2>/dev/null || true)
     for pkg in containerd.io docker-ce-cli docker-ce docker-compose-plugin docker-buildx-plugin; do
+        # Extract latest .deb filename for this package (e.g. docker-ce_29.1.5-1~ubuntu.24.04~noble_amd64.deb)
         PKG_DEB=$(echo "${INDEX}" | grep -oE "${pkg}_[^\"'<> ]+\.deb" | sort -V | tail -1)
         if [ -n "${PKG_DEB}" ]; then
             log_info "  Downloading ${PKG_DEB}..."

@@ -1,9 +1,20 @@
 name: Build Docker Airgapped Bundle
 
 on:
-    # Trigger only on release
+    # Trigger on release
     release:
         types: [published]
+
+    # Trigger on push to specific branches
+    push:
+        branches:
+            - main
+            - airgapped-single-binary-2
+        paths:
+            - "scripts/airgapped/download-docker-packages.sh"
+            - "scripts/airgapped/build-docker-airgapped-bundle.sh"
+            - "scripts/airgapped/install-docker-offline.sh"
+            - ".github/workflows/build-docker-bundle.yml"
 
     # Manual trigger
     workflow_dispatch:
@@ -45,8 +56,11 @@ jobs:
                   chmod +x scripts/airgapped/download-docker-packages.sh
                   chmod +x scripts/airgapped/install-docker-offline.sh
 
-                  # Build for each distro and bundle all into 1 tar.gz
-                  ./scripts/airgapped/build-docker-airgapped-bundle.sh "$DISTROS"
+                  # Build for each distro
+                  for distro in $DISTROS; do
+                    echo "Building for $distro..."
+                    ./scripts/airgapped/build-docker-airgapped-bundle.sh "$distro"
+                  done
 
             - name: List generated bundles
               run: |

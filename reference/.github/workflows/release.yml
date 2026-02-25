@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+env:
+  CARGO_TERM_COLOR: always
+  BIN_NAME: nqrust-analytics
+  ARCH: amd64
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release-linux:
+    name: Build & Release (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install packaging deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev
+          cargo install cargo-deb --locked
+          cargo install cargo-edit --locked
+
+      - name: Sync Cargo version with tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "Setting Cargo.toml version to ${VERSION} from tag ${GITHUB_REF_NAME}"
+          cargo set-version "${VERSION}"
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Build Debian package
+        run: cargo deb --no-build
+
+      - name: Prepare artifacts
+        run: |
+          mkdir -p dist
+          DEB_FILE=$(ls target/debian/*.deb | head -n 1)
+          # Binary tarball
+          tar -C target/release -czf dist/${BIN_NAME}-linux-amd64.tar.gz ${BIN_NAME}
+          # Raw binary for convenience
+          cp target/release/${BIN_NAME} dist/${BIN_NAME}-linux-amd64
+          # Debian package
+          cp "${DEB_FILE}" dist/
+          cp "${DEB_FILE}" dist/${BIN_NAME}_${ARCH}.deb
+          # Checksums
+          (cd dist && sha256sum * > SHA256SUMS)
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v1
+        with:
+          files: dist/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

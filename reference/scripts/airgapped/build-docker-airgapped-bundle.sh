@@ -40,7 +40,7 @@ for distro in ${DISTROS}; do
     echo ""
 done
 
-# Create tarball for easy transfer — 1 file contains all distros
+# Create tarball for easy transfer
 BUNDLE_NAME="docker-airgapped-$(date +%Y%m%d).tar.gz"
 BUNDLE_PATH="${BUILD_DIR}/${BUNDLE_NAME}"
 log_step "Creating tarball: ${BUNDLE_PATH}"
