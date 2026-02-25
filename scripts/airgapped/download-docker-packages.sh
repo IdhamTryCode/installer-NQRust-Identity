@@ -37,14 +37,6 @@ apt-get update -qq
 
 # Download packages without installing
 echo "Downloading to ${OUTPUT_DIR}..."
-apt-get download \
-  docker-ce \
-  docker-ce-cli \
-  containerd.io \
-  docker-buildx-plugin \
-  docker-compose-plugin \
-  --print-uris 2>/dev/null || true   # suppress warnings
-
 cd "${OUTPUT_DIR}"
 apt-get download \
   docker-ce \
@@ -52,11 +44,6 @@ apt-get download \
   containerd.io \
   docker-buildx-plugin \
   docker-compose-plugin
-
-# Copy install script
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cp "${SCRIPT_DIR}/install-docker-offline.sh" .
-chmod +x install-docker-offline.sh
 
 echo "✅ Docker packages downloaded to ${OUTPUT_DIR}/"
 ls -lh "${OUTPUT_DIR}/"
