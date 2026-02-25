@@ -5,11 +5,10 @@ on:
     release:
         types: [published]
 
-    # Trigger on push to specific branches
+    # Trigger on push to main (only when docker bundle scripts change)
     push:
         branches:
             - main
-            - airgapped-single-binary-2
         paths:
             - "scripts/airgapped/download-docker-packages.sh"
             - "scripts/airgapped/build-docker-airgapped-bundle.sh"
@@ -56,7 +55,7 @@ jobs:
                   chmod +x scripts/airgapped/download-docker-packages.sh
                   chmod +x scripts/airgapped/install-docker-offline.sh
 
-                  # Build for each distro
+                  mkdir -p build
                   for distro in $DISTROS; do
                     echo "Building for $distro..."
                     ./scripts/airgapped/build-docker-airgapped-bundle.sh "$distro"
@@ -75,14 +74,19 @@ jobs:
 
             - name: Generate bundle info
               run: |
+                  mkdir -p build
                   cat > build/docker-bundle-info.txt <<EOF
-                  Docker Airgapped Bundle Information
-                  ====================================
+                  Docker Airgapped Bundle — NQRust Identity
+                  ==========================================
 
                   Build Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
                   Git Commit: ${{ github.sha }}
                   Git Ref: ${{ github.ref }}
-                  Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+                  Purpose
+                  =======
+                  Use these bundles to install Docker on airgapped machines
+                  before running the nqrust-identity-airgapped installer.
 
                   Included Distros
                   ================
@@ -94,24 +98,14 @@ jobs:
 
                   Installation Instructions
                   =========================
-                  1. Transfer docker-airgapped-*.tar.gz to airgapped machine
-                  2. Extract: tar xzf docker-airgapped-*.tar.gz
-                  3. Navigate: cd docker-packages/<distro>  # e.g., ubuntu24.04
+                  1. Transfer docker-airgapped-<distro>.tar.gz to airgapped machine
+                  2. Extract: tar xzf docker-airgapped-<distro>.tar.gz
+                  3. Navigate: cd <distro>/
                   4. Install: sudo ./install-docker-offline.sh
                   5. Add user to docker group: sudo usermod -aG docker \$USER
-                  6. Logout and login again
+                  6. Log out and log back in
                   7. Verify: docker --version && docker compose version
-
-                  What's Included
-                  ===============
-                  - Docker CE (latest stable)
-                  - Docker Compose v2 (plugin)
-                  - Docker Buildx (plugin)
-                  - containerd.io
-                  - All required dependencies (.deb packages)
-
-                  For detailed instructions, see:
-                  https://github.com/${{ github.repository }}/blob/main/docs/AIRGAPPED-INSTALLATION.md
+                  8. Now run the nqrust-identity-airgapped installer
                   EOF
 
             - name: Upload to release
@@ -138,10 +132,6 @@ jobs:
               run: |
                   echo "## 🐳 Docker Airgapped Bundle Build Complete" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "### Build Information" >> $GITHUB_STEP_SUMMARY
-                  echo "- **Git Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-                  echo "- **Branch**: \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
-                  echo "" >> $GITHUB_STEP_SUMMARY
                   echo "### Generated Bundles" >> $GITHUB_STEP_SUMMARY
                   for bundle in build/docker-airgapped-*.tar.gz; do
                     if [ -f "$bundle" ]; then
@@ -151,21 +141,9 @@ jobs:
                     fi
                   done
                   echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "### Included Distros" >> $GITHUB_STEP_SUMMARY
-                  if [ -d build/docker-packages ]; then
-                    ls build/docker-packages/ | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY
-                  fi
-                  echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "### Download" >> $GITHUB_STEP_SUMMARY
-                  if [ "${{ github.event_name }}" == "release" ]; then
-                    echo "Bundles uploaded to release: ${{ github.event.release.html_url }}" >> $GITHUB_STEP_SUMMARY
-                  else
-                    echo "Bundles available as workflow artifacts" >> $GITHUB_STEP_SUMMARY
-                  fi
-                  echo "" >> $GITHUB_STEP_SUMMARY
                   echo "### Installation" >> $GITHUB_STEP_SUMMARY
                   echo '```bash' >> $GITHUB_STEP_SUMMARY
-                  echo 'tar xzf docker-airgapped-*.tar.gz' >> $GITHUB_STEP_SUMMARY
-                  echo 'cd docker-packages/ubuntu24.04  # or your distro' >> $GITHUB_STEP_SUMMARY
+                  echo 'tar xzf docker-airgapped-ubuntu24.04.tar.gz' >> $GITHUB_STEP_SUMMARY
+                  echo 'cd ubuntu24.04' >> $GITHUB_STEP_SUMMARY
                   echo 'sudo ./install-docker-offline.sh' >> $GITHUB_STEP_SUMMARY
                   echo '```' >> $GITHUB_STEP_SUMMARY

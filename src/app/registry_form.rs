@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum FocusState {
     Field(usize),
@@ -21,10 +22,12 @@ impl RegistryForm {
         }
     }
 
+    #[allow(dead_code)]
     pub fn get_current_value_mut(&mut self) -> &mut String {
         &mut self.token
     }
 
+    #[allow(dead_code)]
     pub fn validate(&mut self) -> bool {
         if self.token.trim().is_empty() {
             self.error_message = "Personal access token is required".to_string();
@@ -35,6 +38,7 @@ impl RegistryForm {
         true
     }
 }
+
 
 impl Default for RegistryForm {
     fn default() -> Self {

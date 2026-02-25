@@ -2,9 +2,6 @@
 pub enum AppState {
     RegistrySetup,
     Confirmation,
-    EnvSetup,
-    ConfigSelection,
-    LocalLlmConfig,
     UpdateList,
     UpdatePulling,
     Installing,
@@ -15,8 +12,6 @@ pub enum AppState {
 #[derive(Debug, Clone, PartialEq)]
 pub enum MenuSelection {
     Proceed,
-    GenerateEnv,
-    GenerateConfig,
     UpdateToken,
     CheckUpdates,
     Cancel,

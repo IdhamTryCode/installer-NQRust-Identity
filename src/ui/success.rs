@@ -43,20 +43,36 @@ pub fn render_success(frame: &mut Frame, view: &SuccessView<'_>) {
     let message = vec![
         Line::from(""),
         Line::from(Span::styled(
-            "Analytics has been successfully installed!",
+            "NQRust Identity (Keycloak) has been successfully installed!",
             Style::default()
                 .fg(Color::Green)
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
-        Line::from("All services are now running. You can access Analytics UI at:"),
+        Line::from("Services are now running:"),
         Line::from(Span::styled(
-            "http://localhost:3000",
+            "  • identity-db  → PostgreSQL 16 on host port 5436",
+            Style::default().fg(Color::White),
+        )),
+        Line::from(Span::styled(
+            "  • identity     → Keycloak Admin Console:",
+            Style::default().fg(Color::White),
+        )),
+        Line::from(Span::styled(
+            "    http://localhost:8080/admin",
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::UNDERLINED),
         )),
         Line::from(""),
+        Line::from(Span::styled(
+            "  Default admin credentials:  admin / admin",
+            Style::default().fg(Color::Yellow),
+        )),
+        Line::from(Span::styled(
+            "  ⚠  Please change the admin password after first login!",
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        )),
     ];
 
     let message_widget = Paragraph::new(message)

@@ -8,29 +8,15 @@ use std::io;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-/// List of required Docker images (must match save-images.sh)
-/// busybox is used by bootstrap service (Dockerfile: FROM busybox) so compose build does not pull
+/// List of required Docker images for NQRust Identity (must match save-images.sh)
 const REQUIRED_IMAGES: &[(&str, &str)] = &[
-    ("busybox:latest", "busybox.tar.gz"),
+    ("postgres:16-alpine", "postgres.tar.gz"),
     (
-        "ghcr.io/nexusquantum/analytics-engine:latest",
-        "analytics-engine.tar.gz",
+        "ghcr.io/nexusquantum/nqrust-identity:latest",
+        "nqrust-identity.tar.gz",
     ),
-    (
-        "ghcr.io/nexusquantum/analytics-engine-ibis:latest",
-        "analytics-engine-ibis.tar.gz",
-    ),
-    (
-        "ghcr.io/nexusquantum/analytics-service:latest",
-        "analytics-service.tar.gz",
-    ),
-    (
-        "ghcr.io/nexusquantum/analytics-ui:latest",
-        "analytics-ui.tar.gz",
-    ),
-    ("qdrant/qdrant:v1.11.0", "qdrant.tar.gz"),
-    ("postgres:15", "postgres.tar.gz"),
 ];
+
 
 /// Check if Docker is available
 pub fn check_docker_available() -> Result<()> {

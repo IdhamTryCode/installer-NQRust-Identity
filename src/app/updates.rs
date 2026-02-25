@@ -18,27 +18,9 @@ struct ServiceConfig {
 
 const SERVICE_CONFIGS: &[ServiceConfig] = &[
     ServiceConfig {
-        display_name: "Analytics Engine",
-        image: "ghcr.io/nexusquantum/analytics-engine",
-        package: "analytics-engine",
-        current_tag: "latest",
-    },
-    ServiceConfig {
-        display_name: "Analytics Engine Ibis",
-        image: "ghcr.io/nexusquantum/analytics-engine-ibis",
-        package: "analytics-engine-ibis",
-        current_tag: "latest",
-    },
-    ServiceConfig {
-        display_name: "Analytics Service",
-        image: "ghcr.io/nexusquantum/analytics-service",
-        package: "analytics-service",
-        current_tag: "latest",
-    },
-    ServiceConfig {
-        display_name: "Analytics UI",
-        image: "ghcr.io/nexusquantum/analytics-ui",
-        package: "analytics-ui",
+        display_name: "NQRust Identity (Keycloak)",
+        image: "ghcr.io/nexusquantum/nqrust-identity",
+        package: "nqrust-identity",
         current_tag: "latest",
     },
 ];
@@ -56,7 +38,9 @@ pub struct UpdateInfo {
     pub status_note: Option<String>,
     pub has_update: bool,
     pub is_self: bool,
+    #[allow(dead_code)]
     pub download_url: Option<String>,
+    #[allow(dead_code)]
     pub checksum_url: Option<String>,
 }
 
@@ -100,14 +84,12 @@ impl UpdateInfo {
         self.recompute_status();
     }
 
-    pub fn pull_reference(&self) -> String {
-        format!("{}:{}", self.image, self.current_tag)
-    }
-
+    #[allow(dead_code)]
     pub fn append_status(&mut self, message: &str) {
         append_status(&mut self.status_note, message);
     }
 
+    #[allow(dead_code)]
     pub fn clear_local_error(&mut self) {
         if let Some(note) = &self.status_note {
             if note.contains("Failed to inspect local image") {
@@ -189,13 +171,13 @@ pub async fn collect_update_infos(client: &Client, token: Option<&str>) -> Resul
 
 async fn fetch_installer_update(client: &Client) -> Result<Option<UpdateInfo>> {
     let url = format!(
-        "https://api.github.com/repos/{owner}/installer-NQRust-Analytics/releases/latest",
+        "https://api.github.com/repos/{owner}/installer-NQRust-Identity/releases/latest",
         owner = OWNER
     );
 
     let response = client
         .get(&url)
-        .header("User-Agent", "nqrust-analytics")
+        .header("User-Agent", "nqrust-identity")
         .header("Accept", "application/vnd.github+json")
         .send()
         .await?;
@@ -330,7 +312,7 @@ async fn fetch_package_versions(
     for url in endpoints {
         let mut request = client
             .get(&url)
-            .header("User-Agent", "nqrust-analytics")
+            .header("User-Agent", "nqrust-identity")
             .header("Accept", "application/vnd.github+json");
 
         if let Some(token) = token {
@@ -389,6 +371,54 @@ async fn inspect_local_image_created_at(image: &str, tag: &str) -> Result<Option
 
 pub async fn get_local_image_created(image: &str, tag: &str) -> Result<Option<DateTime<Utc>>> {
     inspect_local_image_created_at(image, tag).await
+}
+
+/// Fetch the latest release tag for nqrust-identity from GitHub Releases API.
+/// Returns e.g. "v0.0.1", or None if not found / network error.
+/// Falls back to GHCR package tags if no GitHub Release exists yet.
+pub async fn fetch_latest_identity_tag(client: &Client, token: Option<&str>) -> Option<String> {
+    // Try GitHub Releases first (most reliable semver source)
+    let release_url = format!(
+        "https://api.github.com/repos/{OWNER}/nqrust-identity/releases/latest"
+    );
+    let mut req = client
+        .get(&release_url)
+        .header("User-Agent", "nqrust-identity")
+        .header("Accept", "application/vnd.github+json");
+    if let Some(tok) = token {
+        req = req.header("Authorization", format!("Bearer {tok}"));
+    }
+    if let Ok(resp) = req.send().await {
+        if resp.status().is_success() {
+            if let Ok(release) = resp.json::<ReleaseResponse>().await {
+                let tag = release.tag_name.trim().to_string();
+                if !tag.is_empty() && tag != "latest" {
+                    return Some(tag);
+                }
+            }
+        }
+    }
+
+    // Fallback: GHCR package versions — pick highest semver tag
+    if let Ok(Some(versions)) =
+        fetch_package_versions(client, OWNER, "nqrust-identity", token).await
+    {
+        let all_tags: Vec<String> = versions
+            .into_iter()
+            .filter_map(|v| {
+                v.metadata?
+                    .container?
+                    .tags?
+                    .into_iter()
+                    .find(|t| t != "latest")
+            })
+            .collect();
+        if let Some(best) = determine_latest_release_tag(&all_tags) {
+            return Some(best);
+        }
+    }
+
+    None
 }
 
 fn append_status(target: &mut Option<String>, message: &str) {

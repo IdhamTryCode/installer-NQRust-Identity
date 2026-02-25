@@ -5,11 +5,10 @@ on:
     release:
         types: [published]
 
-    # Trigger on push to specific branches
+    # Trigger on push to main
     push:
         branches:
             - main
-            - airgapped-single-binary-2
         paths:
             - "src/**"
             - "scripts/airgapped/**"
@@ -18,11 +17,10 @@ on:
             - "docker-compose.yaml"
             - ".github/workflows/build-airgapped.yml"
 
-    # Trigger on PR to main or airgapped branches
+    # Trigger on PR to main
     pull_request:
         branches:
             - main
-            - "airgapped-*"
 
     # Manual trigger
     workflow_dispatch:
@@ -38,6 +36,7 @@ on:
 
 env:
     CARGO_TERM_COLOR: always
+    BIN_NAME: nqrust-identity-airgapped
 
 permissions:
     contents: write
@@ -75,21 +74,15 @@ jobs:
 
             - name: Verify Docker authentication
               run: |
-                  echo "Testing GHCR authentication..."
-                  echo "Repository: ${{ github.repository }}"
-                  echo "Repository Owner: ${{ github.repository_owner }}"
-                  echo "Actor: ${{ github.actor }}"
-
-                  # Test if we can access GHCR
-                  if docker pull ghcr.io/${{ github.repository_owner }}/analytics-engine:latest 2>&1 | grep -q "denied"; then
-                    echo "❌ Authentication failed - GITHUB_TOKEN may not have access to packages"
-                    echo "⚠️  Please ensure:"
-                    echo "   1. Packages are public OR"
-                    echo "   2. Workflow has 'packages: read' permission OR"
-                    echo "   3. Use a PAT with 'read:packages' scope"
+                  echo "Testing GHCR authentication for nqrust-identity..."
+                  IMAGE="ghcr.io/nexusquantum/nqrust-identity:latest"
+                  if docker manifest inspect "${IMAGE}" > /dev/null 2>&1; then
+                    echo "✅ Authentication successful — image ${IMAGE} is accessible"
+                  else
+                    echo "❌ Cannot access ${IMAGE}"
+                    echo "⚠️  Please ensure GHCR_TOKEN secret has 'read:packages' scope"
                     exit 1
                   fi
-                  echo "✅ Authentication successful"
 
             - name: Build airgapped binary
               run: |
@@ -102,14 +95,13 @@ jobs:
               run: |
                   echo "Validating airgapped binary..."
 
-                  # Check file exists
-                  if [ ! -f nqrust-analytics-airgapped ]; then
+                  if [ ! -f "${BIN_NAME}" ]; then
                     echo "❌ Binary not found!"
                     exit 1
                   fi
 
                   # Check file size (should be > 1 GB with payload)
-                  SIZE=$(stat -c%s nqrust-analytics-airgapped)
+                  SIZE=$(stat -c%s "${BIN_NAME}")
                   echo "Binary size: $(numfmt --to=iec-i --suffix=B $SIZE)"
                   if [ $SIZE -lt 1000000000 ]; then
                     echo "❌ Binary too small ($SIZE bytes), likely missing payload"
@@ -117,19 +109,13 @@ jobs:
                   fi
 
                   # Check payload marker exists
-                  if ! grep -q "__NQRUST_PAYLOAD__" nqrust-analytics-airgapped; then
+                  if ! grep -qF "__NQRUST_PAYLOAD__" "${BIN_NAME}"; then
                     echo "❌ Payload marker not found in binary"
                     exit 1
                   fi
 
-                  # Verify checksum file
-                  if [ ! -f nqrust-analytics-airgapped.sha256 ]; then
-                    echo "❌ Checksum file not found"
-                    exit 1
-                  fi
-
                   # Verify checksum
-                  if sha256sum -c nqrust-analytics-airgapped.sha256; then
+                  if sha256sum -c "${BIN_NAME}.sha256"; then
                     echo "✅ Checksum verification passed"
                   else
                     echo "❌ Checksum verification failed"
@@ -140,9 +126,10 @@ jobs:
 
             - name: Generate build info
               run: |
+                  IDENTITY_TAG=$(cat build/images/manifest.json | jq -r '.identity_tag // "latest"')
                   cat > build-info.txt <<EOF
-                  Build Information
-                  =================
+                  Build Information — NQRust Identity Airgapped Installer
+                  ==========================================================
 
                   Build Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
                   Git Commit: ${{ github.sha }}
@@ -151,23 +138,22 @@ jobs:
 
                   Binary Details
                   ==============
-                  File: nqrust-analytics-airgapped
-                  Size: $(stat -c%s nqrust-analytics-airgapped | numfmt --to=iec-i --suffix=B)
-                  SHA256: $(cat nqrust-analytics-airgapped.sha256)
+                  File: ${BIN_NAME}
+                  Size: $(stat -c%s ${BIN_NAME} | numfmt --to=iec-i --suffix=B)
+                  SHA256: $(cat ${BIN_NAME}.sha256)
 
                   Included Docker Images
                   ======================
-                  $(cat build/images/manifest.json | jq -r '.images[] | "- \(.name) (\(.size | tonumber / 1048576 | floor)MB)"')
+                  $(cat build/images/manifest.json | jq -r '.images[] | "- \(.name)"')
+
+                  Identity Tag Used: ${IDENTITY_TAG}
 
                   Installation
                   ============
-                  1. Download nqrust-analytics-airgapped
-                  2. Verify: sha256sum -c nqrust-analytics-airgapped.sha256
-                  3. Make executable: chmod +x nqrust-analytics-airgapped
-                  4. Run: ./nqrust-analytics-airgapped install
-
-                  For detailed instructions, see:
-                  https://github.com/${{ github.repository }}/blob/main/docs/AIRGAPPED-INSTALLATION.md
+                  1. Download ${BIN_NAME}
+                  2. Verify: sha256sum -c ${BIN_NAME}.sha256
+                  3. Make executable: chmod +x ${BIN_NAME}
+                  4. Run: ./${BIN_NAME}
                   EOF
 
             - name: Upload to release
@@ -175,8 +161,8 @@ jobs:
               uses: softprops/action-gh-release@v1
               with:
                   files: |
-                      nqrust-analytics-airgapped
-                      nqrust-analytics-airgapped.sha256
+                      ${{ env.BIN_NAME }}
+                      ${{ env.BIN_NAME }}.sha256
                       build-info.txt
                       build/images/manifest.json
               env:
@@ -187,8 +173,8 @@ jobs:
               with:
                   name: airgapped-binary-${{ github.ref_name }}-${{ github.sha }}
                   path: |
-                      nqrust-analytics-airgapped
-                      nqrust-analytics-airgapped.sha256
+                      ${{ env.BIN_NAME }}
+                      ${{ env.BIN_NAME }}.sha256
                       build-info.txt
                       build/images/manifest.json
                       build/images/SHA256SUMS
@@ -196,19 +182,14 @@ jobs:
 
             - name: Summary
               run: |
-                  echo "## 🎉 Airgapped Binary Build Complete" >> $GITHUB_STEP_SUMMARY
+                  IDENTITY_TAG=$(cat build/images/manifest.json | jq -r '.identity_tag // "latest"')
+                  echo "## 🎉 NQRust Identity Airgapped Binary Build Complete" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
                   echo "### Build Information" >> $GITHUB_STEP_SUMMARY
-                  echo "- **Binary Size**: $(stat -c%s nqrust-analytics-airgapped | numfmt --to=iec-i --suffix=B)" >> $GITHUB_STEP_SUMMARY
-                  echo "- **SHA256**: \`$(cat nqrust-analytics-airgapped.sha256 | cut -d' ' -f1)\`" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Binary Size**: $(stat -c%s ${BIN_NAME} | numfmt --to=iec-i --suffix=B)" >> $GITHUB_STEP_SUMMARY
+                  echo "- **SHA256**: \`$(cat ${BIN_NAME}.sha256 | cut -d' ' -f1)\`" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Identity Tag**: \`${IDENTITY_TAG}\`" >> $GITHUB_STEP_SUMMARY
                   echo "- **Git Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
                   echo "### Included Images" >> $GITHUB_STEP_SUMMARY
-                  cat build/images/manifest.json | jq -r '.images[] | "- **\(.name)**: \(.size | tonumber / 1048576 | floor)MB"' >> $GITHUB_STEP_SUMMARY
-                  echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "### Download" >> $GITHUB_STEP_SUMMARY
-                  if [ "${{ github.event_name }}" == "release" ]; then
-                    echo "Binary uploaded to release: ${{ github.event.release.html_url }}" >> $GITHUB_STEP_SUMMARY
-                  else
-                    echo "Binary available as workflow artifact" >> $GITHUB_STEP_SUMMARY
-                  fi
+                  cat build/images/manifest.json | jq -r '.images[] | "- **\(.name)**"' >> $GITHUB_STEP_SUMMARY

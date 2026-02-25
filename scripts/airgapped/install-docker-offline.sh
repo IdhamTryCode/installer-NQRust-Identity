@@ -1,102 +1,47 @@
 #!/usr/bin/env bash
+# install-docker-offline.sh — Install Docker from local .deb packages (no internet required)
+# Run this script from the directory containing the .deb package files.
 set -euo pipefail
 
-# install-docker-offline.sh
-# Install Docker CE from pre-downloaded .deb packages (airgapped/offline).
-# Run on the target VM. No internet required.
-#
-# Usage:
-#   sudo ./install-docker-offline.sh [DIR]
-# If DIR is omitted, uses the directory containing this script.
-
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
-
-log_info()  { echo -e "${GREEN}[INFO]${NC} $1"; }
-log_warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
-log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
-
-if [ "$(id -u)" -ne 0 ]; then
-    log_error "This script must be run as root (sudo ./install-docker-offline.sh)"
-    exit 1
-fi
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEB_DIR="${1:-${SCRIPT_DIR}}"
 
-if [ ! -d "${DEB_DIR}" ]; then
-    log_error "Directory not found: ${DEB_DIR}"
-    exit 1
+if [ "$(id -u)" != "0" ]; then
+  echo "❌ This script must be run as root (sudo ./install-docker-offline.sh)"
+  exit 1
 fi
 
-DEB_COUNT=$(find "${DEB_DIR}" -maxdepth 1 -name "*.deb" 2>/dev/null | wc -l)
+echo "🐳 Installing Docker from offline packages..."
+echo "   Package directory: ${SCRIPT_DIR}"
+
+# Check for .deb files
+DEB_COUNT=$(ls "${SCRIPT_DIR}"/*.deb 2>/dev/null | wc -l)
 if [ "${DEB_COUNT}" -eq 0 ]; then
-    log_error "No .deb files found in ${DEB_DIR}"
-    exit 1
+  echo "❌ No .deb files found in ${SCRIPT_DIR}"
+  exit 1
 fi
 
-echo ""
-echo "=========================================="
-echo "  Docker Offline Installer"
-echo "=========================================="
-echo ""
-log_info "Installing from: ${DEB_DIR}"
-log_info "Packages: ${DEB_COUNT} .deb files"
-echo ""
+echo "   Found ${DEB_COUNT} package(s)"
 
-# Install all .deb (run twice so second pass satisfies newly revealed deps)
-log_info "Installing packages with dpkg..."
-cd "${DEB_DIR}"
-dpkg -i *.deb 2>/dev/null || true
-dpkg -i *.deb 2>/dev/null || true
+# Install all packages
+dpkg -i "${SCRIPT_DIR}"/*.deb || true
 
-# Check for broken packages
-if dpkg -s docker-ce &>/dev/null; then
-    log_info "Docker CE installed successfully"
+# Fix any dependency issues
+apt-get install -f -y 2>/dev/null || true
+
+# Enable and start Docker
+systemctl enable docker
+systemctl start docker
+
+# Verify installation
+if docker --version && docker compose version; then
+  echo ""
+  echo "✅ Docker installed successfully!"
+  echo ""
+  echo "📌 Next steps:"
+  echo "   1. Add your user to the docker group:  sudo usermod -aG docker \$USER"
+  echo "   2. Log out and log back in"
+  echo "   3. Verify:  docker run hello-world"
 else
-    log_warn "Some packages may have failed. Ensure all dependency .deb files are in this folder."
-    log_warn "Re-run download-docker-packages.sh with Docker available to get full dependency set."
+  echo "❌ Docker installation may have failed. Check the output above."
+  exit 1
 fi
-
-# Start and enable Docker
-log_info "Enabling and starting Docker service..."
-if systemctl unmask docker.service 2>/dev/null; then true; fi
-if systemctl enable docker.service 2>/dev/null; then true; fi
-if systemctl start docker.service 2>/dev/null; then
-    log_info "Docker daemon started"
-else
-    log_warn "Could not start Docker. Run manually: systemctl start docker"
-fi
-
-# Verify
-if command -v docker &>/dev/null; then
-    if docker info &>/dev/null 2>&1; then
-        log_info "Docker is running: $(docker --version)"
-    else
-        log_warn "Docker installed but daemon may not be running. Try: systemctl start docker"
-    fi
-else
-    log_warn "docker command not in PATH"
-fi
-
-if command -v docker &>/dev/null && docker compose version &>/dev/null 2>&1; then
-    log_info "Docker Compose (v2): $(docker compose version --short 2>/dev/null || docker compose version)"
-fi
-
-if command -v docker &>/dev/null && docker buildx version &>/dev/null 2>&1; then
-    log_info "Docker Buildx (BuildKit): $(docker buildx version 2>/dev/null | head -1)"
-else
-    log_warn "Docker Buildx not found. NQRust Analytics installer requires it. Ensure docker-buildx-plugin .deb was in the bundle."
-fi
-
-echo ""
-log_info "=========================================="
-log_info "Installation complete"
-log_info "=========================================="
-log_info "NQRust Analytics requires access to the Docker daemon (sudo or docker group)."
-log_info "Add your user to the 'docker' group:"
-log_info "  sudo usermod -aG docker \$USER"
-log_info "  (then log out and back in)"
-echo ""

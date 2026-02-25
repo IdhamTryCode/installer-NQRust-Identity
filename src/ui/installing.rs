@@ -34,9 +34,9 @@ pub fn render_installing(frame: &mut Frame, view: &InstallingView<'_>) {
         .split(area);
 
     let title_text = if view.airgapped {
-        "🔄 Installing Analytics (Offline Mode)... Please wait"
+        "🔄 Installing Identity (Offline Mode)... Please wait"
     } else {
-        "🔄 Installing Analytics... Please wait"
+        "🔄 Installing Identity... Please wait"
     };
 
     let title = Paragraph::new(title_text)

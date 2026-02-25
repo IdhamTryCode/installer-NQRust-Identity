@@ -1,142 +1,71 @@
-volumes:
-  data:
-  qdrant_data:
-  northwind_data:
-
-
-networks:
-  analytics:
-    driver: bridge
+name: identity
 
 services:
-  bootstrap:
-    build:
-      context: ./bootstrap
-      dockerfile: Dockerfile
-    restart: on-failure
-    platform: linux/amd64
+  postgres:
+    image: postgres:16-alpine
+    container_name: identity-db
+    ports:
+      - "5436:5432"
     environment:
-      DATA_PATH: /app/data
+      POSTGRES_DB: identity
+      POSTGRES_USER: identity
+      POSTGRES_PASSWORD: identity
     volumes:
-      - data:/app/data
-    command: /bin/sh /app/init.sh
-
-  analytics-engine:
-    image: ghcr.io/nexusquantum/analytics-engine:latest
-    restart: on-failure
-    platform: ${PLATFORM}
-    env_file:
-      - .env
-    ports:
-      - "${ANALYTICS_ENGINE_PORT}:${ANALYTICS_ENGINE_PORT}"
-    volumes:
-      - data:/usr/src/app/etc
-      - ${PROJECT_DIR}/data:/usr/src/app/data
-    networks:
-      - analytics
-    depends_on:
-      - bootstrap
-
-  ibis-server:
-    image: ghcr.io/nexusquantum/analytics-engine-ibis:latest
-    restart: on-failure
-    platform: ${PLATFORM}
-    env_file:
-      - .env
-    ports:
-      - "${IBIS_SERVER_PORT}:${IBIS_SERVER_PORT}"
-    volumes:
-      - ${LOCAL_STORAGE:-.}:/usr/src/app/data
-    networks:
-      - analytics
-    depends_on:
-      - analytics-engine
-
-  analytics-service:
-    image: ghcr.io/nexusquantum/analytics-service:latest
-    restart: on-failure
-    platform: linux/amd64
-    env_file:
-      - .env
-    ports:
-      - "5555:5555"
-    volumes:
-      - ./config.yaml:/app/config.yaml:ro
-      - ./data:/app/data:ro
-    networks:
-      - analytics
-    depends_on:
-      - qdrant
-
-  qdrant:
-    image: qdrant/qdrant:v1.11.0
-    restart: on-failure
-    expose:
-      - 6333
-      - 6334
-    volumes:
-      - qdrant_data:/qdrant/storage
-    networks:
-      - analytics
-
-  # Northwind PostgreSQL Demo Database + Analytics Application Database
-  northwind-db:
-    image: postgres:15
-    restart: unless-stopped
-    env_file:
-      - .env
-    environment:
-      PGPORT: ${POSTGRES_PORT}
-    command: [ "postgres", "-p", "${POSTGRES_PORT}" ]
-    ports:
-      - "${POSTGRES_PORT}:${POSTGRES_PORT}"
+      - identity_pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: [ "CMD-SHELL", "psql -p ${POSTGRES_PORT} -U ${POSTGRES_USER:-demo} -d ${POSTGRES_DB:-northwind} -c \"SELECT 1 FROM pg_constraint WHERE conname = 'fk_orders_customers'\"" ]
+      test: [ "CMD-SHELL", "pg_isready -U identity -d identity" ]
       interval: 5s
-      timeout: 5s
-      retries: 10
-    networks:
-      - analytics
-    volumes:
-      - ./00-init-analytics-db.sql:/docker-entrypoint-initdb.d/00-init-analytics-db.sql:ro
-      - ./northwind.sql:/docker-entrypoint-initdb.d/northwind.sql:ro
-      - ./scripts/ensure-analytics-db.sh:/docker-entrypoint-initdb.d/99-ensure-analytics-db.sh:ro
-      - northwind_data:/var/lib/postgresql/data
+      timeout: 3s
+      retries: 20
 
-  # Ensures analytics user and DB exist (idempotent). Needed when volume already existed before 00-init-analytics-db.sql was added.
-  analytics-db-init:
-    image: postgres:15
-    env_file:
-      - .env
-    environment:
-      PGHOST: northwind-db
-      PGPORT: ${POSTGRES_PORT}
-      PGUSER: ${POSTGRES_USER:-demo}
-      PGPASSWORD: ${POSTGRES_PASSWORD:-demo123}
-    volumes:
-      - ./scripts/ensure-analytics-db.sh:/ensure-analytics-db.sh:ro
-    entrypoint: [ "/bin/sh", "/ensure-analytics-db.sh" ]
-    networks:
-      - analytics
+  identity:
+    # Tag is resolved by the installer at runtime (fetched from GitHub Releases).
+    # Falls back to "latest" if no release tag is found.
+    # To override manually: IDENTITY_TAG=v0.0.1 docker compose up -d
+    image: ghcr.io/nexusquantum/nqrust-identity:${IDENTITY_TAG:-latest}
+    pull_policy: always
+    container_name: identity
     depends_on:
-      northwind-db:
+      postgres:
         condition: service_healthy
-    restart: "no"
-
-  analytics-ui:
-    image: ghcr.io/nexusquantum/analytics-ui:latest
-    restart: on-failure
-    platform: linux/amd64
-    env_file:
-      - .env
     ports:
-      - "3000:3000"
-    volumes:
-      - data:/app/data
-    networks:
-      - analytics
-    depends_on:
-      - analytics-db-init
-      - analytics-service
-      - analytics-engine
-      - ibis-server
+      - "8080:8080"
+    environment:
+      # Admin bootstrap
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+
+      # Production database config
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/identity
+      KC_DB_USERNAME: identity
+      KC_DB_PASSWORD: identity
+
+      # Recommended toggles
+      KC_HEALTH_ENABLED: "true"
+      KC_METRICS_ENABLED: "true"
+
+      # Local-friendly HTTP/hostname settings for `start` (production profile)
+      # In production, either set KC_HOSTNAME or keep strict off behind a proxy.
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME_STRICT: "false"
+
+      # Behind reverse proxy? (uncomment + tune)
+      # KC_PROXY: edge
+      # KC_HOSTNAME: auth.example.com
+      # Theme defaults (theme-as-JAR: keycloakify-starter.jar)
+      # Note: welcome theme should remain "keycloak" unless your custom theme provides a WELCOME theme type.
+      KC_THEME_DEFAULT: ${KC_THEME_DEFAULT:-keycloakify-starter}
+      KC_THEME_WELCOME: ${KC_THEME_WELCOME:-keycloak}
+
+    # Use string form so we can use env-substitution in args
+    command: >
+      start --optimized --http-enabled=true --hostname-strict=false --spi-theme--default=${KC_THEME_DEFAULT:-keycloakify-starter} --spi-theme--welcome-theme=${KC_THEME_WELCOME:-keycloak}
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -fsS http://localhost:8080/health/ready > /dev/null" ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  identity_pgdata: {}
