@@ -18,10 +18,6 @@ on:
     # Manual trigger
     workflow_dispatch:
         inputs:
-            distros:
-                description: "Distros to build (space-separated: ubuntu24.04 ubuntu22.04 debian12)"
-                required: false
-                default: "ubuntu24.04 ubuntu22.04"
             upload_to_release:
                 description: "Upload to latest release (true/false)"
                 required: false
@@ -35,72 +31,53 @@ permissions:
 
 jobs:
     build-docker-bundle:
-        name: Build Docker Airgapped Bundle
-        runs-on: ubuntu-latest
+        name: Build Docker Bundle (${{ matrix.distro }})
+        runs-on: ${{ matrix.runner }}
         timeout-minutes: 30
+
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    # Each Ubuntu version must run on a matching runner so apt-get download works
+                    - distro: ubuntu24.04
+                      runner: ubuntu-24.04
+                    - distro: ubuntu22.04
+                      runner: ubuntu-22.04
 
         steps:
             - name: Checkout
               uses: actions/checkout@v4
 
-            - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@v3
-
-            - name: Build Docker bundles
+            - name: Download Docker packages
               run: |
-                  DISTROS="${{ github.event.inputs.distros || 'ubuntu24.04 ubuntu22.04' }}"
-                  echo "Building Docker bundles for: $DISTROS"
+                  sudo chmod +x scripts/airgapped/download-docker-packages.sh
+                  sudo chmod +x scripts/airgapped/install-docker-offline.sh
+                  sudo mkdir -p build
+                  sudo ./scripts/airgapped/download-docker-packages.sh "${{ matrix.distro }}" "build/docker-packages/${{ matrix.distro }}"
 
-                  chmod +x scripts/airgapped/build-docker-airgapped-bundle.sh
-                  chmod +x scripts/airgapped/download-docker-packages.sh
-                  chmod +x scripts/airgapped/install-docker-offline.sh
-
-                  mkdir -p build
-                  for distro in $DISTROS; do
-                    echo "Building for $distro..."
-                    ./scripts/airgapped/build-docker-airgapped-bundle.sh "$distro"
-                  done
-
-            - name: List generated bundles
+            - name: Create bundle tarball
               run: |
-                  echo "Generated bundles:"
-                  ls -lh build/docker-airgapped-*.tar.gz || echo "No bundles found"
-
-                  if [ -d build/docker-packages ]; then
-                    echo ""
-                    echo "Package directories:"
-                    ls -lh build/docker-packages/
-                  fi
+                  cd build
+                  tar -czf "docker-airgapped-${{ matrix.distro }}.tar.gz" "docker-packages/${{ matrix.distro }}/"
+                  echo "Bundle created:"
+                  ls -lh "docker-airgapped-${{ matrix.distro }}.tar.gz"
 
             - name: Generate bundle info
               run: |
-                  mkdir -p build
-                  cat > build/docker-bundle-info.txt <<EOF
+                  cat > build/docker-bundle-info-${{ matrix.distro }}.txt <<EOF
                   Docker Airgapped Bundle — NQRust Identity
                   ==========================================
 
                   Build Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+                  Distro: ${{ matrix.distro }}
                   Git Commit: ${{ github.sha }}
-                  Git Ref: ${{ github.ref }}
-
-                  Purpose
-                  =======
-                  Use these bundles to install Docker on airgapped machines
-                  before running the nqrust-identity-airgapped installer.
-
-                  Included Distros
-                  ================
-                  $(ls build/docker-packages/ 2>/dev/null | sed 's/^/- /' || echo "None")
-
-                  Bundle Files
-                  ============
-                  $(ls -lh build/docker-airgapped-*.tar.gz 2>/dev/null | awk '{print "- " $9 " (" $5 ")"}' || echo "None")
 
                   Installation Instructions
                   =========================
-                  1. Transfer docker-airgapped-<distro>.tar.gz to airgapped machine
-                  2. Extract: tar xzf docker-airgapped-<distro>.tar.gz
-                  3. Navigate: cd <distro>/
+                  1. Transfer docker-airgapped-${{ matrix.distro }}.tar.gz to airgapped machine
+                  2. Extract: tar xzf docker-airgapped-${{ matrix.distro }}.tar.gz
+                  3. Navigate: cd docker-packages/${{ matrix.distro }}/
                   4. Install: sudo ./install-docker-offline.sh
                   5. Add user to docker group: sudo usermod -aG docker \$USER
                   6. Log out and log back in
@@ -113,37 +90,23 @@ jobs:
               uses: softprops/action-gh-release@v1
               with:
                   files: |
-                      build/docker-airgapped-*.tar.gz
-                      build/docker-bundle-info.txt
+                      build/docker-airgapped-${{ matrix.distro }}.tar.gz
+                      build/docker-bundle-info-${{ matrix.distro }}.txt
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Upload build artifacts
               uses: actions/upload-artifact@v4
               with:
-                  name: docker-bundle-${{ github.ref_name }}-${{ github.sha }}
+                  name: docker-bundle-${{ matrix.distro }}-${{ github.sha }}
                   path: |
-                      build/docker-airgapped-*.tar.gz
-                      build/docker-bundle-info.txt
-                      build/docker-packages/*/install-docker-offline.sh
+                      build/docker-airgapped-${{ matrix.distro }}.tar.gz
+                      build/docker-bundle-info-${{ matrix.distro }}.txt
                   retention-days: 30
 
             - name: Summary
               run: |
-                  echo "## 🐳 Docker Airgapped Bundle Build Complete" >> $GITHUB_STEP_SUMMARY
-                  echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "### Generated Bundles" >> $GITHUB_STEP_SUMMARY
-                  for bundle in build/docker-airgapped-*.tar.gz; do
-                    if [ -f "$bundle" ]; then
-                      SIZE=$(du -h "$bundle" | cut -f1)
-                      NAME=$(basename "$bundle")
-                      echo "- **$NAME**: $SIZE" >> $GITHUB_STEP_SUMMARY
-                    fi
-                  done
-                  echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "### Installation" >> $GITHUB_STEP_SUMMARY
-                  echo '```bash' >> $GITHUB_STEP_SUMMARY
-                  echo 'tar xzf docker-airgapped-ubuntu24.04.tar.gz' >> $GITHUB_STEP_SUMMARY
-                  echo 'cd ubuntu24.04' >> $GITHUB_STEP_SUMMARY
-                  echo 'sudo ./install-docker-offline.sh' >> $GITHUB_STEP_SUMMARY
-                  echo '```' >> $GITHUB_STEP_SUMMARY
+                  SIZE=$(du -h "build/docker-airgapped-${{ matrix.distro }}.tar.gz" | cut -f1)
+                  echo "## 🐳 Docker Bundle: ${{ matrix.distro }}" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Size**: $SIZE" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Distro**: ${{ matrix.distro }}" >> $GITHUB_STEP_SUMMARY
