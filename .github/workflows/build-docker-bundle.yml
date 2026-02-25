@@ -1,19 +1,9 @@
 name: Build Docker Airgapped Bundle
 
 on:
-    # Trigger on release
+    # Trigger only on release
     release:
         types: [published]
-
-    # Trigger on push to main (only when docker bundle scripts change)
-    push:
-        branches:
-            - main
-        paths:
-            - "scripts/airgapped/download-docker-packages.sh"
-            - "scripts/airgapped/build-docker-airgapped-bundle.sh"
-            - "scripts/airgapped/install-docker-offline.sh"
-            - ".github/workflows/build-docker-bundle.yml"
 
     # Manual trigger
     workflow_dispatch:
