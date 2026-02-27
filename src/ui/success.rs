@@ -59,7 +59,7 @@ pub fn render_success(frame: &mut Frame, view: &SuccessView<'_>) {
             Style::default().fg(Color::White),
         )),
         Line::from(Span::styled(
-            "    http://localhost:8008/auth",
+            "    http://localhost:8008",
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::UNDERLINED),

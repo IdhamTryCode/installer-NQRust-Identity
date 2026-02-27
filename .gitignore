@@ -7,6 +7,9 @@ config.yaml
 .ghcr_token
 /data
 
+# SSL certs — generated per-VM by the installer, contains private key
+certs/
+
 # IDE
 .vscode/
 .idea/

@@ -1,15 +1,18 @@
 use color_eyre::{Result, eyre::eyre};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::{DefaultTerminal, Frame};
+use rcgen::{Certificate, CertificateParams, SanType};
 use reqwest::Client;
+use std::net::IpAddr as StdIpAddr;
 use std::process::Stdio;
 use std::{env, fs};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
+use crate::app::state::SslSetupMenuSelection;
 use crate::ui::{
-    self, ConfirmationView, ErrorView, InstallingView, RegistrySetupView, SuccessView,
-    UpdateListView,
+    self, ConfirmationView, ErrorView, InstallingView, RegistrySetupView, SslSetupView,
+    SuccessView, UpdateListView,
 };
 use crate::utils;
 
@@ -44,6 +47,8 @@ pub struct App {
     current_service: String,
     total_services: usize,
     completed_services: usize,
+    pub(crate) cert_exists: bool,
+    pub(crate) env_has_ip: bool,
     pub(crate) menu_selection: MenuSelection,
     update_infos: Vec<UpdateInfo>,
     update_selection_index: usize,
@@ -53,6 +58,10 @@ pub struct App {
     ghcr_token: Option<String>,
     /// True when running as nqrust-identity-airgapped (offline mode, no image pull)
     pub(crate) airgapped: bool,
+    // SSL setup screen state
+    pub(crate) ssl_detected_ip: String,
+    pub(crate) ssl_menu_selection: SslSetupMenuSelection,
+    pub(crate) ssl_status: Option<String>,
 }
 
 impl App {
@@ -71,22 +80,35 @@ impl App {
 
         let airgapped = crate::airgapped::is_airgapped_binary().unwrap_or(false);
 
-        // Skip registry setup if token already available or airgapped mode
+        // Detect IP for SSL setup
+        let ssl_detected_ip = App::detect_ip();
+
+        // Check file status for checklist
+        let root = utils::project_root();
+        let cert_exists = root.join("certs/server.crt").exists()
+            && root.join("certs/server.key").exists();
+        let env_has_ip = fs::read_to_string(root.join(".env"))
+            .map(|c| c.lines().any(|l| l.starts_with("SERVER_IP=")))
+            .unwrap_or(false);
+
+        // Always start at Confirmation (or RegistrySetup if no token)
         let initial_state = if initial_token.is_some() || airgapped {
             AppState::Confirmation
         } else {
             AppState::RegistrySetup
         };
 
-        Self {
+        let mut app = Self {
             running: true,
             state: initial_state,
             logs: Vec::new(),
             progress: 0.0,
             current_service: String::new(),
-            // Identity has 2 services: identity-db + identity
-            total_services: 2,
+            // Identity stack: identity-db + identity + identity-caddy
+            total_services: 3,
             completed_services: 0,
+            cert_exists,
+            env_has_ip,
             menu_selection: MenuSelection::Proceed,
             update_infos: Vec::new(),
             update_selection_index: 0,
@@ -95,7 +117,132 @@ impl App {
             registry_status: None,
             ghcr_token: initial_token,
             airgapped,
+            ssl_detected_ip,
+            ssl_menu_selection: SslSetupMenuSelection::Generate,
+            ssl_status: None,
+        };
+
+        app.ensure_menu_selection();
+        app
+    }
+
+    /// Build the adaptive menu based on current file status.
+    fn menu_options(&self) -> Vec<MenuSelection> {
+        let mut options = Vec::new();
+
+        // If cert or SERVER_IP is missing, show generate option
+        if !self.cert_exists || !self.env_has_ip {
+            options.push(MenuSelection::GenerateSsl);
         }
+
+        if !self.airgapped {
+            if self.ghcr_token.is_some() {
+                options.push(MenuSelection::UpdateToken);
+            }
+            options.push(MenuSelection::CheckUpdates);
+        }
+
+        // Proceed only available when cert + SERVER_IP are both ready
+        if self.cert_exists && self.env_has_ip {
+            options.push(MenuSelection::Proceed);
+        }
+
+        options.push(MenuSelection::Cancel);
+        options
+    }
+
+    /// Ensure current menu_selection is valid for current state.
+    /// Prefers Proceed if available (so after cert generation the cursor lands there),
+    /// otherwise falls back to the first available option.
+    fn ensure_menu_selection(&mut self) {
+        let options = self.menu_options();
+        if !options.contains(&self.menu_selection) {
+            // Prefer Proceed > GenerateSsl > first option
+            if options.contains(&MenuSelection::Proceed) {
+                self.menu_selection = MenuSelection::Proceed;
+            } else if options.contains(&MenuSelection::GenerateSsl) {
+                self.menu_selection = MenuSelection::GenerateSsl;
+            } else if let Some(first) = options.first() {
+                self.menu_selection = first.clone();
+            }
+        }
+    }
+
+    /// Detect the VM's outbound IP by opening a UDP-like socket toward 8.8.8.8.
+    /// Falls back to 127.0.0.1 if detection fails.
+    fn detect_ip() -> String {
+        use std::net::UdpSocket;
+        UdpSocket::bind("0.0.0.0:0")
+            .and_then(|s| {
+                s.connect("8.8.8.8:80")?;
+                s.local_addr()
+            })
+            .map(|addr| addr.ip().to_string())
+            .unwrap_or_else(|_| "127.0.0.1".to_string())
+    }
+
+    /// Generate a self-signed TLS cert using rcgen (no openssl required).
+    /// Writes certs/server.crt and certs/server.key, then updates SERVER_IP in .env.
+    fn generate_ssl_cert(ip: &str) -> Result<()> {
+        let root = utils::project_root();
+        let certs_dir = root.join("certs");
+        fs::create_dir_all(&certs_dir)?;
+
+        let ip_addr: StdIpAddr = ip
+            .parse()
+            .map_err(|_| eyre!("Invalid IP address: {}", ip))?;
+
+        let mut params = CertificateParams::default();
+        params.subject_alt_names = vec![SanType::IpAddress(ip_addr)];
+        // Valid for ~100 years
+        params.not_before = rcgen::date_time_ymd(2024, 1, 1);
+        params.not_after = rcgen::date_time_ymd(2124, 1, 1);
+
+        let cert = Certificate::from_params(params)
+            .map_err(|e| eyre!("rcgen cert error: {e}"))?;
+
+        let cert_pem = cert
+            .serialize_pem()
+            .map_err(|e| eyre!("cert serialize error: {e}"))?;
+        let key_pem = cert.serialize_private_key_pem();
+
+        fs::write(certs_dir.join("server.crt"), cert_pem)?;
+        fs::write(certs_dir.join("server.key"), key_pem)?;
+
+        // Write SERVER_IP to .env
+        App::write_server_ip_to_env(ip)?;
+
+        Ok(())
+    }
+
+    /// Upsert SERVER_IP=<ip> in .env (create file if missing).
+    fn write_server_ip_to_env(ip: &str) -> Result<()> {
+        let root = utils::project_root();
+        let env_path = root.join(".env");
+        let entry = format!("SERVER_IP={}", ip);
+
+        let existing = fs::read_to_string(&env_path).unwrap_or_default();
+        let has_entry = existing.lines().any(|l| l.starts_with("SERVER_IP="));
+
+        let new_content = if has_entry {
+            existing
+                .lines()
+                .map(|l| {
+                    if l.starts_with("SERVER_IP=") {
+                        entry.as_str()
+                    } else {
+                        l
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+                + "\n"
+        } else {
+            format!("{}{}", existing, format!("{}\n", entry))
+        };
+
+        fs::write(&env_path, new_content)?;
+        Ok(())
     }
 
     fn load_token_from_disk() -> Option<String> {
@@ -111,24 +258,53 @@ impl App {
         let _ = fs::write(&token_path, token);
     }
 
-    fn menu_options(&self) -> Vec<MenuSelection> {
-        vec![
-            MenuSelection::CheckUpdates,
-            MenuSelection::UpdateToken,
-            MenuSelection::Proceed,
-            MenuSelection::Cancel,
-        ]
-    }
-
     fn add_log(&mut self, message: &str) {
         self.logs.push(message.to_string());
     }
+
+
 
     pub async fn run(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         while self.running {
             terminal.draw(|frame| self.render(frame))?;
 
             match &self.state.clone() {
+                AppState::SslSetup => {
+                    if let Some(action) = self.handle_ssl_setup_events()? {
+                        match action {
+                            SslSetupMenuSelection::Generate => {
+                                self.ssl_status =
+                                    Some("⏳ Generating SSL cert...".to_string());
+                                terminal.draw(|frame| self.render(frame))?;
+                                let ip = self.ssl_detected_ip.clone();
+                                match App::generate_ssl_cert(&ip) {
+                                    Ok(()) => {
+                                        self.ssl_status = None;
+                                        // Update checklist state
+                                        self.cert_exists = true;
+                                        self.env_has_ip = true;
+                                        self.state = AppState::Confirmation;
+                                        self.ensure_menu_selection();
+                                    }
+                                    Err(e) => {
+                                        self.ssl_status = None;
+                                        self.state = AppState::Error(format!(
+                                            "SSL cert generation failed: {e}"
+                                        ));
+                                    }
+                                }
+                            }
+                            SslSetupMenuSelection::Skip => {
+                                self.state = AppState::Confirmation;
+                                self.ensure_menu_selection();
+                            }
+                            SslSetupMenuSelection::Cancel => {
+                                self.running = false;
+                            }
+                        }
+                    }
+                }
+
                 AppState::RegistrySetup => {
                     if let Some(action) = self.handle_registry_events()? {
                         match action {
@@ -149,6 +325,7 @@ impl App {
                                             self.registry_status = None;
                                             self.registry_form.error_message.clear();
                                             self.state = AppState::Confirmation;
+                                            self.ensure_menu_selection();
                                         }
                                         Err(e) => {
                                             self.registry_form.error_message = format!(
@@ -166,6 +343,14 @@ impl App {
                             }
                             RegistryAction::Skip => {
                                 self.state = AppState::Confirmation;
+                                // Refresh checklist status after returning from registry
+                                let root = utils::project_root();
+                                self.cert_exists = root.join("certs/server.crt").exists()
+                                    && root.join("certs/server.key").exists();
+                                self.env_has_ip = fs::read_to_string(root.join(".env"))
+                                    .map(|c| c.lines().any(|l| l.starts_with("SERVER_IP=")))
+                                    .unwrap_or(false);
+                                self.ensure_menu_selection();
                             }
                         }
                     }
@@ -175,8 +360,13 @@ impl App {
                     if let Some(action) = self.handle_confirmation_events()? {
                         let options = self.menu_options();
                         match action {
+                            MenuSelection::GenerateSsl => {
+                                self.ssl_menu_selection = SslSetupMenuSelection::Generate;
+                                self.ssl_status = None;
+                                self.state = AppState::SslSetup;
+                            }
                             MenuSelection::Proceed => {
-                                // Identity: no .env / config.yaml needed, proceed directly
+                                // Only reachable when cert_exists && env_has_ip
                                 let root = utils::project_root();
                                 if let Err(e) = utils::ensure_compose_bundle(&root) {
                                     self.state = AppState::Error(format!(
@@ -184,7 +374,9 @@ impl App {
                                     ));
                                 } else {
                                     self.state = AppState::Installing;
-                                    if let Err(e) = self.run_docker_compose().await {
+                                    self.logs.clear();
+                                    terminal.draw(|frame| self.render(frame))?;
+                                    if let Err(e) = self.run_docker_compose(terminal).await {
                                         self.state =
                                             AppState::Error(format!("Installation failed: {e}"));
                                     }
@@ -296,6 +488,17 @@ impl App {
 
     fn render(&self, frame: &mut Frame) {
         match &self.state {
+            AppState::SslSetup => {
+                frame.render_widget(ratatui::widgets::Clear, frame.area());
+                let view = SslSetupView {
+                    detected_ip: &self.ssl_detected_ip,
+                    cert_exists: self.cert_exists,
+                    env_has_ip: self.env_has_ip,
+                    menu_selection: &self.ssl_menu_selection,
+                    status: self.ssl_status.as_deref(),
+                };
+                ui::render_ssl_setup(frame, &view);
+            }
             AppState::RegistrySetup => {
                 frame.render_widget(ratatui::widgets::Clear, frame.area());
                 let view = RegistrySetupView {
@@ -308,6 +511,8 @@ impl App {
                 frame.render_widget(ratatui::widgets::Clear, frame.area());
                 let options = self.menu_options();
                 let view = ConfirmationView {
+                    cert_exists: self.cert_exists,
+                    env_has_ip: self.env_has_ip,
                     menu_selection: &self.menu_selection,
                     menu_options: &options,
                     airgapped: self.airgapped,
@@ -352,6 +557,52 @@ impl App {
                 ui::render_error(frame, &view);
             }
         }
+    }
+
+    fn handle_ssl_setup_events(&mut self) -> Result<Option<SslSetupMenuSelection>> {
+        if !event::poll(std::time::Duration::from_millis(200))? {
+            return Ok(None);
+        }
+        let Event::Key(key) = event::read()? else {
+            return Ok(None);
+        };
+        if key.kind != KeyEventKind::Press {
+            return Ok(None);
+        }
+
+        let options = [
+            SslSetupMenuSelection::Generate,
+            SslSetupMenuSelection::Skip,
+            SslSetupMenuSelection::Cancel,
+        ];
+        let current_idx = options
+            .iter()
+            .position(|o| o == &self.ssl_menu_selection)
+            .unwrap_or(0);
+
+        match key.code {
+            KeyCode::Up => {
+                if current_idx > 0 {
+                    self.ssl_menu_selection = options[current_idx - 1].clone();
+                }
+            }
+            KeyCode::Down => {
+                if current_idx + 1 < options.len() {
+                    self.ssl_menu_selection = options[current_idx + 1].clone();
+                }
+            }
+            KeyCode::Enter => {
+                return Ok(Some(self.ssl_menu_selection.clone()));
+            }
+            KeyCode::Esc => {
+                return Ok(Some(SslSetupMenuSelection::Skip));
+            }
+            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.running = false;
+            }
+            _ => {}
+        }
+        Ok(None)
     }
 
     fn handle_registry_events(&mut self) -> Result<Option<RegistryAction>> {
@@ -605,7 +856,7 @@ impl App {
         ))
     }
 
-    async fn run_docker_compose(&mut self) -> Result<()> {
+    async fn run_docker_compose(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         let root = utils::project_root();
         let compose_file = root.join("docker-compose.yaml");
 
@@ -617,9 +868,12 @@ impl App {
         let compose_cmd = self.detect_compose_command().await?;
 
         // --- Registry login (if token available) ---
+        // Non-fatal: Docker may already be authenticated via credentials helper
         if let Some(token) = self.ghcr_token.clone() {
             self.add_log("🔐 Logging into GHCR...");
-            self.login_to_ghcr(&token).await?;
+            if let Err(e) = self.login_to_ghcr(&token).await {
+                self.add_log(&format!("⚠️  GHCR login warning (will try pull anyway): {e}"));
+            }
         }
 
         // --- Resolve latest image tag from GitHub Releases ---
@@ -657,11 +911,24 @@ impl App {
 
             let mut child = cmd.spawn()?;
 
-            // Stream stderr
+            // Stream stderr with Ctrl+C support
             if let Some(stderr) = child.stderr.take() {
                 let mut reader = BufReader::new(stderr).lines();
                 while let Ok(Some(line)) = reader.next_line().await {
                     self.process_log_line(&line);
+                    let _ = terminal.draw(|frame| self.render(frame));
+                    // Allow Ctrl+C to cancel during streaming
+                    if event::poll(std::time::Duration::ZERO)? {
+                        if let Event::Key(key) = event::read()? {
+                            if key.kind == KeyEventKind::Press
+                                && key.code == KeyCode::Char('c')
+                                && key.modifiers.contains(KeyModifiers::CONTROL)
+                            {
+                                self.running = false;
+                                return Ok(());
+                            }
+                        }
+                    }
                 }
             }
 
@@ -691,11 +958,24 @@ impl App {
 
         let mut child = cmd.spawn()?;
 
-        // Stream stderr
+        // Stream stderr with Ctrl+C support
         if let Some(stderr) = child.stderr.take() {
             let mut reader = BufReader::new(stderr).lines();
             while let Ok(Some(line)) = reader.next_line().await {
                 self.process_log_line(&line);
+                let _ = terminal.draw(|frame| self.render(frame));
+                // Allow Ctrl+C to cancel during streaming
+                if event::poll(std::time::Duration::ZERO)? {
+                    if let Event::Key(key) = event::read()? {
+                        if key.kind == KeyEventKind::Press
+                            && key.code == KeyCode::Char('c')
+                            && key.modifiers.contains(KeyModifiers::CONTROL)
+                        {
+                            self.running = false;
+                            return Ok(());
+                        }
+                    }
+                }
             }
         }
 
@@ -704,11 +984,10 @@ impl App {
             return Err(eyre!("docker compose up failed"));
         }
 
+        self.add_log("✅ All services started!");
+        self.add_log("ℹ️  Keycloak warms up in ~30-60s. Access: http://localhost:8008");
         self.progress = 100.0;
         self.completed_services = self.total_services;
-        self.add_log("✅ All services started successfully!");
-
-        // Transition to success
         self.state = AppState::Success;
 
         Ok(())
@@ -752,7 +1031,7 @@ impl App {
 
     fn extract_service_name(&self, line: &str) -> Option<String> {
         // Matches lines like: " ✔ Container identity-db  Started"
-        let service_names = ["identity-db", "identity"];
+        let service_names = ["identity-db", "identity-caddy", "identity"];
         for name in &service_names {
             if line.contains(name) {
                 return Some(name.to_string());

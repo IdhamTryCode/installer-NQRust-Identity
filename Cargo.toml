@@ -29,6 +29,7 @@ tar = "0.4"         # For tar extraction
 tempfile = "3.8"    # For temp directory management
 indicatif = "0.17"  # For progress bars
 sha2 = "0.10"       # For payload checksum verification
+rcgen = "0.11"      # For pure-Rust self-signed TLS cert generation
 
 [package.metadata.deb]
 name = "nqrust-identity"
