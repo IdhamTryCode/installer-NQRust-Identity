@@ -17,10 +17,11 @@ echo "Using nqrust-identity tag: ${IDENTITY_TAG}"
 declare -A IMAGE_FILES
 IMAGE_FILES["ghcr.io/nexusquantum/nqrust-identity:${IDENTITY_TAG}"]="nqrust-identity.tar.gz"
 IMAGE_FILES["postgres:16-alpine"]="postgres.tar.gz"
+IMAGE_FILES["caddy:2-alpine"]="caddy.tar.gz"
 
 MANIFEST_ENTRIES="[]"
 
-for IMAGE in "ghcr.io/nexusquantum/nqrust-identity:${IDENTITY_TAG}" "postgres:16-alpine"; do
+for IMAGE in "ghcr.io/nexusquantum/nqrust-identity:${IDENTITY_TAG}" "postgres:16-alpine" "caddy:2-alpine"; do
   FILENAME="${IMAGE_FILES[$IMAGE]}"
   OUTPUT="${IMAGES_DIR}/${FILENAME}"
 

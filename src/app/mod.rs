@@ -85,8 +85,8 @@ impl App {
 
         // Check file status for checklist
         let root = utils::project_root();
-        let cert_exists = root.join("certs/server.crt").exists()
-            && root.join("certs/server.key").exists();
+        let cert_exists =
+            root.join("certs/server.crt").exists() && root.join("certs/server.key").exists();
         let env_has_ip = fs::read_to_string(root.join(".env"))
             .map(|c| c.lines().any(|l| l.starts_with("SERVER_IP=")))
             .unwrap_or(false);
@@ -198,8 +198,7 @@ impl App {
         params.not_before = rcgen::date_time_ymd(2024, 1, 1);
         params.not_after = rcgen::date_time_ymd(2124, 1, 1);
 
-        let cert = Certificate::from_params(params)
-            .map_err(|e| eyre!("rcgen cert error: {e}"))?;
+        let cert = Certificate::from_params(params).map_err(|e| eyre!("rcgen cert error: {e}"))?;
 
         let cert_pem = cert
             .serialize_pem()
@@ -262,8 +261,6 @@ impl App {
         self.logs.push(message.to_string());
     }
 
-
-
     pub async fn run(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         while self.running {
             terminal.draw(|frame| self.render(frame))?;
@@ -273,8 +270,7 @@ impl App {
                     if let Some(action) = self.handle_ssl_setup_events()? {
                         match action {
                             SslSetupMenuSelection::Generate => {
-                                self.ssl_status =
-                                    Some("⏳ Generating SSL cert...".to_string());
+                                self.ssl_status = Some("⏳ Generating SSL cert...".to_string());
                                 terminal.draw(|frame| self.render(frame))?;
                                 let ip = self.ssl_detected_ip.clone();
                                 match App::generate_ssl_cert(&ip) {
@@ -872,7 +868,9 @@ impl App {
         if let Some(token) = self.ghcr_token.clone() {
             self.add_log("🔐 Logging into GHCR...");
             if let Err(e) = self.login_to_ghcr(&token).await {
-                self.add_log(&format!("⚠️  GHCR login warning (will try pull anyway): {e}"));
+                self.add_log(&format!(
+                    "⚠️  GHCR login warning (will try pull anyway): {e}"
+                ));
             }
         }
 

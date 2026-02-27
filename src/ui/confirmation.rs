@@ -76,7 +76,11 @@ pub fn render_confirmation(frame: &mut Frame, view: &ConfirmationView<'_>) {
 
     // SSL Cert row
     let cert_icon = if view.cert_exists { "✓" } else { "✗" };
-    let cert_color = if view.cert_exists { Color::Green } else { Color::Red };
+    let cert_color = if view.cert_exists {
+        Color::Green
+    } else {
+        Color::Red
+    };
     content_lines.push(Line::from(vec![
         Span::raw("  "),
         Span::styled(cert_icon, Style::default().fg(cert_color)),
@@ -97,7 +101,11 @@ pub fn render_confirmation(frame: &mut Frame, view: &ConfirmationView<'_>) {
 
     // SERVER_IP row
     let ip_icon = if view.env_has_ip { "✓" } else { "✗" };
-    let ip_color = if view.env_has_ip { Color::Green } else { Color::Red };
+    let ip_color = if view.env_has_ip {
+        Color::Green
+    } else {
+        Color::Red
+    };
     content_lines.push(Line::from(vec![
         Span::raw("  "),
         Span::styled(ip_icon, Style::default().fg(ip_color)),

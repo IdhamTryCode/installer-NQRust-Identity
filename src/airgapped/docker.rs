@@ -15,6 +15,7 @@ const REQUIRED_IMAGES: &[(&str, &str)] = &[
         "ghcr.io/nexusquantum/nqrust-identity:latest",
         "nqrust-identity.tar.gz",
     ),
+    ("caddy:2-alpine", "caddy.tar.gz"),
 ];
 
 /// Check if Docker is available

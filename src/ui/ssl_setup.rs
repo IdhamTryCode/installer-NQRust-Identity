@@ -24,10 +24,10 @@ pub fn render_ssl_setup(frame: &mut Frame, view: &SslSetupView<'_>) {
         .direction(Direction::Vertical)
         .margin(2)
         .constraints([
-            Constraint::Length(3),  // title
-            Constraint::Length(8),  // info block
-            Constraint::Length(3),  // status / spacer
-            Constraint::Min(3),     // menu
+            Constraint::Length(3), // title
+            Constraint::Length(8), // info block
+            Constraint::Length(3), // status / spacer
+            Constraint::Min(3),    // menu
         ])
         .split(area);
 
@@ -99,7 +99,11 @@ pub fn render_ssl_setup(frame: &mut Frame, view: &SslSetupView<'_>) {
     // ── Status line ────────────────────────────────────────────────────────
     if let Some(status) = view.status {
         let status_widget = Paragraph::new(status)
-            .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+            .style(
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )
             .alignment(Alignment::Center);
         frame.render_widget(status_widget, chunks[2]);
     }
@@ -132,7 +136,10 @@ pub fn render_ssl_setup(frame: &mut Frame, view: &SslSetupView<'_>) {
             "Skip (use existing / no SSL)",
             view.menu_selection == &SslSetupMenuSelection::Skip,
         ),
-        make_item("Cancel", view.menu_selection == &SslSetupMenuSelection::Cancel),
+        make_item(
+            "Cancel",
+            view.menu_selection == &SslSetupMenuSelection::Cancel,
+        ),
         Line::from(""),
         Line::from(Span::styled(
             "  ↑↓ to move   Enter to select   Ctrl+C to quit",
