@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use color_eyre::eyre::Result;
 
 pub const COMPOSE_TEMPLATE: &str = include_str!("../docker-compose.yaml");
+pub const CADDYFILE_TEMPLATE: &str = include_str!("../Caddyfile");
 
 #[allow(dead_code)]
 pub fn find_file(filename: &str) -> bool {
@@ -48,9 +49,11 @@ pub fn project_root() -> PathBuf {
     start
 }
 
-/// Ensure docker-compose.yaml exists in the working dir.
-/// If it doesn't, write the embedded template.
+/// Ensure docker-compose.yaml and Caddyfile exist in the working dir.
+/// Writes the embedded templates if the files are missing.
+/// Also fixes the case where Caddyfile was accidentally created as a directory.
 pub fn ensure_compose_bundle(root: &Path) -> Result<()> {
+    // --- docker-compose.yaml ---
     let compose_path = root.join("docker-compose.yaml");
     if !compose_path.exists() {
         if let Some(parent) = compose_path.parent() {
@@ -58,6 +61,17 @@ pub fn ensure_compose_bundle(root: &Path) -> Result<()> {
         }
         fs::write(&compose_path, COMPOSE_TEMPLATE)?;
     }
+
+    // --- Caddyfile ---
+    let caddyfile_path = root.join("Caddyfile");
+    // Guard: if Caddyfile exists as a *directory* (accidental mkdir), remove it first
+    if caddyfile_path.exists() && caddyfile_path.is_dir() {
+        fs::remove_dir_all(&caddyfile_path)?;
+    }
+    if !caddyfile_path.exists() {
+        fs::write(&caddyfile_path, CADDYFILE_TEMPLATE)?;
+    }
+
     Ok(())
 }
 
