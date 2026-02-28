@@ -11,35 +11,24 @@ use tar::Archive;
 
 use super::PAYLOAD_MARKER;
 
+const GZIP_MAGIC: [u8; 3] = [0x1f, 0x8b, 0x08];
+
 /// Check if a file contains the payload marker.
 /// Layout is [binary ~10MB][marker][payload.tar.gz], so marker is right after the binary.
 pub fn has_payload_marker(path: &Path) -> Result<bool> {
     let mut file = File::open(path)?;
-    let file_size = file.metadata()?.len();
-    // Marker is right after the Rust binary; search first 25 MB to cover binary + marker
-    let search_size = 25_000_000u64.min(file_size);
-    file.seek(SeekFrom::Start(0))?;
-    let mut buffer = vec![0u8; search_size as usize];
-    let n = file.read(&mut buffer)?;
-    let buffer = &buffer[..n];
-    Ok(buffer
-        .windows(PAYLOAD_MARKER.len())
-        .any(|window| window == PAYLOAD_MARKER))
+    Ok(find_marker_position(&mut file).is_ok())
 }
 
 /// Find the position of the payload marker in the file
 fn find_marker_position(file: &mut File) -> Result<u64> {
-    let file_size = file.metadata()?.len();
-
-    // Use a sliding window approach to find marker
-    // Start from a reasonable position (binary is ~10 MB)
-    let start_pos = 5_000_000u64.min(file_size / 2);
-    file.seek(SeekFrom::Start(start_pos))?;
-
     let marker_len = PAYLOAD_MARKER.len();
-    let mut buffer = vec![0u8; 8192]; // 8 KB buffer
+    let signature_len = marker_len + GZIP_MAGIC.len();
+    let mut buffer = vec![0u8; 64 * 1024];
     let mut window = Vec::new();
-    let mut current_pos = start_pos;
+    let mut current_pos = 0u64;
+
+    file.seek(SeekFrom::Start(0))?;
 
     loop {
         let bytes_read = file.read(&mut buffer)?;
@@ -49,17 +38,43 @@ fn find_marker_position(file: &mut File) -> Result<u64> {
 
         window.extend_from_slice(&buffer[..bytes_read]);
 
-        // Search for marker in window
-        if let Some(pos) = window.windows(marker_len).position(|w| w == PAYLOAD_MARKER) {
-            return Ok(current_pos + pos as u64);
+        let mut search_from = 0usize;
+        while let Some(rel_pos) = window[search_from..].windows(signature_len).position(|w| {
+            w[..marker_len] == *PAYLOAD_MARKER && w[marker_len..] == GZIP_MAGIC
+        }) {
+            let pos = search_from + rel_pos;
+            let marker_pos = current_pos + pos as u64;
+            let payload_start = marker_pos + marker_len as u64;
+
+            if payload_looks_valid(file, payload_start)? {
+                return Ok(marker_pos);
+            }
+
+            search_from = pos + 1;
         }
 
-        // Keep last marker_len bytes for next iteration
-        if window.len() > marker_len {
-            let keep_from = window.len() - marker_len;
+        // Keep overlap bytes so marker/signature spanning chunks is still matched.
+        if window.len() > signature_len {
+            let keep_from = window.len() - (signature_len - 1);
             current_pos += keep_from as u64;
             window = window[keep_from..].to_vec();
         }
+    }
+}
+
+fn payload_looks_valid(file: &File, payload_start: u64) -> Result<bool> {
+    let mut probe = file.try_clone()?;
+    probe.seek(SeekFrom::Start(payload_start))?;
+
+    let decoder = GzDecoder::new(probe);
+    let mut archive = Archive::new(decoder);
+
+    match archive.entries() {
+        Ok(mut entries) => match entries.next() {
+            Some(Ok(_)) => Ok(true),
+            _ => Ok(false),
+        },
+        Err(_) => Ok(false),
     }
 }
 
