@@ -144,7 +144,7 @@ pub fn render_confirmation(frame: &mut Frame, view: &ConfirmationView<'_>) {
             Style::default().fg(Color::White),
         )));
         content_lines.push(Line::from(Span::styled(
-            "  • identity-caddy  (HTTPS proxy — port 3030)",
+            "  • identity-caddy  (HTTPS proxy — port 8008)",
             Style::default().fg(Color::White),
         )));
     } else {

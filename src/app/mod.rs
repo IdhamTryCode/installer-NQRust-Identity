@@ -983,7 +983,7 @@ impl App {
         }
 
         self.add_log("✅ All services started!");
-        self.add_log("ℹ️  Keycloak warms up in ~30-60s. Access: http://localhost:8008");
+        self.add_log("ℹ️  Keycloak warms up in ~30-60s. Access: https://localhost:8008");
         self.progress = 100.0;
         self.completed_services = self.total_services;
         self.state = AppState::Success;
