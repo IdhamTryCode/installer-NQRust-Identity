@@ -39,9 +39,10 @@ fn find_marker_position(file: &mut File) -> Result<u64> {
         window.extend_from_slice(&buffer[..bytes_read]);
 
         let mut search_from = 0usize;
-        while let Some(rel_pos) = window[search_from..].windows(signature_len).position(|w| {
-            w[..marker_len] == *PAYLOAD_MARKER && w[marker_len..] == GZIP_MAGIC
-        }) {
+        while let Some(rel_pos) = window[search_from..]
+            .windows(signature_len)
+            .position(|w| w[..marker_len] == *PAYLOAD_MARKER && w[marker_len..] == GZIP_MAGIC)
+        {
             let pos = search_from + rel_pos;
             let marker_pos = current_pos + pos as u64;
             let payload_start = marker_pos + marker_len as u64;
